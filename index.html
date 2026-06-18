@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>PDMap — Fossil Globe (Paleobiology Database)</title>
+
+  <!-- Progressive Web App: installable on iOS/Android home screens -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#05060a" />
+  <link rel="icon" type="image/png" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="PDMap" />
+  <meta name="mobile-web-app-capable" content="yes" />
+
+  <link rel="stylesheet" href="style.css" />
+  <!-- globe.gl standalone build (bundles three.js), vendored locally so the
+       kit renders without a CDN. Data still comes live from PBDB/Wikipedia. -->
+  <script src="vendor/globe.gl.min.js"></script>
+</head>
+<body>
+  <div id="globe"></div>
+
+  <!-- ===== Filter / search panel ===== -->
+  <aside id="panel">
+    <button id="panel-close" title="Close filters">✕</button>
+    <header class="panel-head">
+      <h1>PDMap <span>🦕</span></h1>
+      <p class="sub">Fossil localities from the <a href="https://paleobiodb.org/" target="_blank" rel="noopener">Paleobiology Database</a></p>
+    </header>
+
+    <form id="search-form" class="filters">
+      <label class="fld">
+        <span>Taxon name</span>
+        <div class="suggest-wrap">
+          <input id="f-taxon" type="text" placeholder="Type, or pick a popular group…" autocomplete="off" />
+          <div id="taxon-suggest" class="suggest hidden"></div>
+        </div>
+        <small>Any rank — includes all sub-groups. Start typing for live suggestions, or leave blank for everything.</small>
+      </label>
+
+      <label class="fld">
+        <span>Geological period</span>
+        <select id="f-period"></select>
+      </label>
+
+      <details class="adv">
+        <summary>Custom age range (Ma)</summary>
+        <div class="row">
+          <label class="fld half"><span>Oldest</span><input id="f-maxma" type="number" min="0" step="0.1" placeholder="max Ma" /></label>
+          <label class="fld half"><span>Youngest</span><input id="f-minma" type="number" min="0" step="0.1" placeholder="min Ma" /></label>
+        </div>
+        <small>Overrides the period dropdown when set.</small>
+      </details>
+
+      <label class="fld">
+        <span>Environment</span>
+        <select id="f-env">
+          <option value="">Any</option>
+          <option value="terrestrial">Terrestrial (land)</option>
+          <option value="marine">Marine (sea)</option>
+          <option value="lacustrine">Lacustrine (lakes)</option>
+          <option value="fluvial">Fluvial (rivers)</option>
+        </select>
+      </label>
+
+      <label class="fld chk">
+        <input id="f-view" type="checkbox" />
+        <span>Only search the area I'm looking at</span>
+      </label>
+
+      <label class="fld">
+        <span>Max results</span>
+        <select id="f-limit">
+          <option value="500">500</option>
+          <option value="2000" selected>2000</option>
+          <option value="5000">5000</option>
+          <option value="15000">15000 (slow)</option>
+        </select>
+      </label>
+
+      <div class="btns">
+        <button type="submit" id="btn-search">Search</button>
+        <button type="button" id="btn-clear" class="ghost">Clear</button>
+      </div>
+    </form>
+
+    <div id="status" class="status"></div>
+
+    <div class="legend">
+      <h3>Geological time</h3>
+      <ul id="legend-list"></ul>
+    </div>
+
+    <footer class="panel-foot">
+      <label class="fld chk"><input id="f-paleo" type="checkbox" /><span>Show on ancient Earth (paleo-coordinates)</span></label>
+      <label class="fld chk"><input id="f-spin" type="checkbox" checked /><span>Auto-rotate globe</span></label>
+    </footer>
+  </aside>
+
+  <button id="panel-toggle" title="Show/hide panel">☰</button>
+
+  <!-- ===== Detail panel (locality + taxa) ===== -->
+  <aside id="detail" class="detail hidden">
+    <button id="detail-close" title="Close">✕</button>
+    <div id="detail-body"></div>
+  </aside>
+
+  <script src="app.js"></script>
+  <script>
+    // Register the service worker (ignored when opened via file:// — the app
+    // still works, it just isn't installable that way).
+    if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+      window.addEventListener("load", () =>
+        navigator.serviceWorker.register("sw.js").catch(() => {}));
+    }
+  </script>
+</body>
+</html>

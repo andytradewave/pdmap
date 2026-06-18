@@ -1,0 +1,69 @@
+==================================================================
+  PDMap - Fossil Globe
+  Explore fossil sites from around the world on a 3D globe.
+==================================================================
+
+You need an internet connection (the fossil data and photos are
+fetched live as you browse).
+
+
+HOW TO START IT
+------------------------------------------------------------------
+
+EASIEST WAY (any computer):
+  Just double-click the file:   index.html
+  It opens in your web browser. That's it.
+
+IF THE FOSSILS DON'T LOAD with the easy way, use the launcher for
+your system instead (it runs a tiny local server, which some
+browsers prefer):
+
+  Windows :  double-click   Start-PDMap-Windows.bat
+  Mac     :  double-click   Start-PDMap-Mac.command
+  Linux   :  run            ./Start-PDMap-Linux.sh
+
+  (On Mac, the first time you may need to right-click the .command
+   file and choose "Open" to get past the security prompt.)
+
+A black window/terminal will appear - that is the server.
+Leave it open while you use PDMap; close it when you're done.
+
+
+HOW TO USE IT
+------------------------------------------------------------------
+  * Type a fossil group in "Taxon name" (try: Tyrannosaurus,
+    Trilobita, Mammalia, Ammonoidea) and press Search.
+  * Narrow it down by geological period, age, or environment.
+  * Tick "Only search the area I'm looking at" to search just the
+    part of the globe on screen.
+  * Spin and zoom the globe with your mouse. The dots are fossil
+    sites, coloured by their geological age (see the legend).
+  * Click a dot to see what was found there, with photos and
+    links to Wikipedia, fossil images and life reconstructions.
+  * Tick "Show on ancient Earth" to move every site to where it
+    sat on the planet at the time.
+
+
+PUT IT ON YOUR PHONE (optional)
+------------------------------------------------------------------
+PDMap can be installed on a phone's home screen like an app.
+
+  1. On a computer, start it with the launcher for your system
+     (see above) - it will show an address like  http://localhost:8000
+  2. Find that computer's network address (its IP), then on your
+     phone (same Wi-Fi) open:   http://<that-computer-ip>:8000
+  3. Add it to your home screen:
+        iPhone (Safari) : Share button -> "Add to Home Screen"
+        Android (Chrome): menu -> "Install app"
+
+It then opens full-screen with its own icon. (You still need an
+internet connection for the fossil data and photos.)
+
+
+WHERE THE DATA COMES FROM
+------------------------------------------------------------------
+  * Fossil records : The Paleobiology Database (paleobiodb.org)
+  * Silhouettes    : PhyloPic (phylopic.org), via PBDB
+  * Photos & info  : Wikipedia
+
+See README.md for technical details and server deployment notes.
