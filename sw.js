@@ -3,7 +3,7 @@
  * Live data (PBDB, Wikipedia) is cross-origin and is never cached — it always
  * goes to the network, so the fossil records and photos stay current. */
 
-const CACHE = "pdmap-shell-v1";
+const CACHE = "pdmap-shell-v3";
 
 const SHELL = [
   "./",
@@ -24,8 +24,10 @@ const SHELL = [
 self.addEventListener("install", (e) => {
   e.waitUntil(
     caches.open(CACHE)
-      // Don't let one missing file abort the whole install.
-      .then((c) => Promise.allSettled(SHELL.map((u) => c.add(u))))
+      // Fetch each shell file bypassing the HTTP cache, so we never precache a
+      // stale copy. Don't let one missing file abort the whole install.
+      .then((c) => Promise.allSettled(SHELL.map((u) =>
+        fetch(u, { cache: "reload" }).then((res) => res.ok && c.put(u, res)))))
       .then(() => self.skipWaiting())
   );
 });
@@ -46,20 +48,20 @@ self.addEventListener("fetch", (e) => {
   // Only manage our own origin. Live API/image calls pass straight through.
   if (url.origin !== self.location.origin) return;
 
-  // Cache-first for the app shell, with a network fallback that also warms
-  // the cache. If everything fails on a navigation, serve the cached page.
+  // Stale-while-revalidate: serve the cached copy instantly (fast + offline),
+  // and refresh the cache from the network in the background so the next load
+  // picks up any deployed updates. Falls back to the cached page when offline.
   e.respondWith(
-    caches.match(req).then((hit) =>
-      hit ||
-      fetch(req)
-        .then((res) => {
-          if (res && res.ok) {
-            const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(req, copy));
-          }
-          return res;
-        })
-        .catch(() => (req.mode === "navigate" ? caches.match("./index.html") : Response.error()))
+    caches.open(CACHE).then((cache) =>
+      cache.match(req).then((cached) => {
+        const network = fetch(req, { cache: "no-cache" }) // revalidate, don't trust heuristic HTTP cache
+          .then((res) => {
+            if (res && res.ok) cache.put(req, res.clone());
+            return res;
+          })
+          .catch(() => cached || (req.mode === "navigate" ? cache.match("./index.html") : Response.error()));
+        return cached || network;
+      })
     )
   );
 });

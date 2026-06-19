@@ -63,11 +63,24 @@ function applyPointSize(alt) {
   for (const d of globe.pointsData()) d._r = r;
   globe.pointRadius(globe.pointRadius()); // re-trigger the accessor
 }
-globe.onZoom((pov) => applyPointSize(pov.altitude));
+/* Pause auto-rotation once you zoom in past this altitude, so the globe holds
+ * still while you inspect a region; it resumes when you zoom back out (unless
+ * you've switched auto-rotate off manually). */
+const SPIN_STOP_ALT = 1.6;
+let spinWanted = true;
+function updateSpin(alt) {
+  globe.controls().autoRotate = spinWanted && alt >= SPIN_STOP_ALT;
+}
+
+function onCameraChange(alt) {
+  applyPointSize(alt);
+  updateSpin(alt);
+}
+globe.onZoom((pov) => onCameraChange(pov.altitude));
 // Belt-and-braces: the controls' own change event fires on every zoom/drag,
-// including mouse-wheel, so point sizing always tracks the camera distance.
+// including mouse-wheel, so sizing and spin always track the camera distance.
 globe.controls().addEventListener("change", () =>
-  applyPointSize(globe.pointOfView().altitude));
+  onCameraChange(globe.pointOfView().altitude));
 
 function resize() {
   globe.width(window.innerWidth).height(window.innerHeight);
@@ -479,7 +492,8 @@ $("f-paleo").addEventListener("change", (e) => {
   globe.pointsData([...recs]);
 });
 $("f-spin").addEventListener("change", (e) => {
-  globe.controls().autoRotate = e.target.checked;
+  spinWanted = e.target.checked;
+  updateSpin(globe.pointOfView().altitude);
 });
 
 /* A friendly first search so the globe isn't empty on load. */
