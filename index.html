@@ -42,17 +42,28 @@
       </label>
 
       <label class="fld">
-        <span>Geological period</span>
-        <select id="f-period"></select>
+        <span>Time interval</span>
+        <div class="suggest-wrap">
+          <input id="f-interval" type="text" placeholder="e.g. Jurassic, Late Cretaceous, Tithonian…" autocomplete="off" />
+          <div id="interval-suggest" class="suggest hidden"></div>
+        </div>
+        <small id="interval-hint">Any eon, era, period, epoch or age. Start typing to search, or leave blank for all of time.</small>
       </label>
 
       <details class="adv">
-        <summary>Custom age range (Ma)</summary>
+        <summary>Custom age range (overrides interval)</summary>
         <div class="row">
-          <label class="fld half"><span>Oldest</span><input id="f-maxma" type="number" min="0" step="0.1" placeholder="max Ma" /></label>
-          <label class="fld half"><span>Youngest</span><input id="f-minma" type="number" min="0" step="0.1" placeholder="min Ma" /></label>
+          <label class="fld half"><span>Oldest</span><input id="f-maxma" type="number" min="0" step="any" placeholder="max" /></label>
+          <label class="fld half"><span>Youngest</span><input id="f-minma" type="number" min="0" step="any" placeholder="min" /></label>
+          <label class="fld unit"><span>Units</span>
+            <select id="f-unit">
+              <option value="Ma">Ma (million yr)</option>
+              <option value="ka">ka (thousand yr)</option>
+              <option value="yr">years</option>
+            </select>
+          </label>
         </div>
-        <small>Overrides the period dropdown when set.</small>
+        <small>Use “years” or “ka” to find very recent sites — e.g. the last few thousand years.</small>
       </details>
 
       <label class="fld">
@@ -83,6 +94,7 @@
 
       <div class="btns">
         <button type="submit" id="btn-search">Search</button>
+        <button type="button" id="btn-download" class="ghost" disabled>⬇ Download</button>
         <button type="button" id="btn-clear" class="ghost">Clear</button>
       </div>
     </form>
@@ -95,7 +107,16 @@
     </div>
 
     <footer class="panel-foot">
+      <label class="fld">
+        <span>Map style</span>
+        <select id="f-base">
+          <option value="marble">Blue Marble (works offline)</option>
+          <option value="satellite">Satellite — high-detail (online)</option>
+        </select>
+        <small>Satellite loads sharp imagery that gets crisper as you zoom in.</small>
+      </label>
       <label class="fld chk"><input id="f-paleo" type="checkbox" /><span>Show on ancient Earth (paleo-coordinates)</span></label>
+      <small id="paleo-note" class="paleo-note hidden"></small>
       <label class="fld chk"><input id="f-spin" type="checkbox" checked /><span>Auto-rotate globe</span></label>
     </footer>
   </aside>

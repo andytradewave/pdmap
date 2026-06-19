@@ -83,8 +83,13 @@ a { color: var(--accent); }
 .suggest .opt .rk { font-size: 11px; color: var(--muted); }
 .suggest .opt .ct { margin-left: auto; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
-.row { display: flex; gap: 10px; }
+.row { display: flex; gap: 10px; align-items: flex-end; }
 .fld.half { flex: 1; }
+.fld.unit { flex: 0 0 96px; }
+
+/* Level/rank tag shown on the right of a timescale suggestion row */
+.suggest .opt .lvl { margin-left: auto; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+.suggest .opt .ct + .lvl { margin-left: 8px; }
 
 .fld.chk { flex-direction: row; align-items: center; gap: 8px; }
 .fld.chk span { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--text); font-size: 13px; }
@@ -93,7 +98,7 @@ a { color: var(--accent); }
 details.adv summary { cursor: pointer; color: var(--muted); font-size: 12px; padding: 2px 0; }
 details.adv .row { margin: 8px 0 4px; }
 
-.btns { display: flex; gap: 10px; margin-top: 4px; }
+.btns { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
 button {
   cursor: pointer;
   border: none;
@@ -119,6 +124,8 @@ button:hover { filter: brightness(1.08); }
 .legend .age { color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
 
 .panel-foot { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+.paleo-note { color: var(--accent-2); font-size: 11px; line-height: 1.35; margin-top: -4px; }
+.paleo-note.hidden { display: none; }
 
 #panel-toggle {
   position: fixed;
@@ -169,6 +176,13 @@ button:hover { filter: brightness(1.08); }
   display: flex; gap: 10px; align-items: flex-start;
   padding: 8px; border-radius: 8px; background: #0a0e16;
   border: 1px solid #1a2230; margin-bottom: 7px;
+}
+/* Taxa that fall within the searched clade, floated to the top of the list. */
+.taxon.match { border-color: var(--accent); background: #0c1422; }
+.taxon.match .tx-name::after {
+  content: "match"; margin-left: 8px; font-size: 9px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.5px; color: #04121c;
+  background: var(--accent); border-radius: 999px; padding: 1px 6px; vertical-align: middle;
 }
 .taxon .tx-thumb { width: 54px; flex: 0 0 auto; }
 .taxon .silhouette { width: 54px; height: 54px; object-fit: contain; background: #fff1; border-radius: 6px; }
