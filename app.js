@@ -49,24 +49,21 @@ const globe = Globe()(document.getElementById("globe"))
   .pointLat("plat")
   .pointLng("plng")
   .pointColor((d) => d === hoveredPoint ? "#ffffff" : d.color)
-  .pointAltitude((d) => d === hoveredPoint ? 0.06 : 0.01)
-  .pointRadius((d) => (d._r || 0.22) * (d === hoveredPoint ? 2.2 : 1))
+  .pointAltitude(0.01)
+  .pointRadius((d) => d._r || 0.22)
   .pointLabel(pointLabel)
   .onPointClick(openLocality)
   .onPointHover(onPointHover)
   .pointsTransitionDuration(0);
 
-/* Highlight the marker under the cursor (it grows, lifts and turns white) on top
- * of the existing tooltip, and show a pointer cursor. */
+/* Highlight the marker under the cursor with a simple colour change (on top of
+ * the existing tooltip), and show a pointer cursor. */
 let hoveredPoint = null;
 function onPointHover(pt) {
   if (pt === hoveredPoint) return;
   hoveredPoint = pt;
   document.body.style.cursor = pt ? "pointer" : "";
-  // Re-trigger the accessors so the highlighted point redraws.
-  globe.pointColor(globe.pointColor())
-    .pointAltitude(globe.pointAltitude())
-    .pointRadius(globe.pointRadius());
+  globe.pointColor(globe.pointColor()); // redraw with the hovered point recoloured
 }
 
 globe.controls().autoRotate = true;
