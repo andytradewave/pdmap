@@ -199,16 +199,17 @@ let INTERVALS = PERIODS.map((p) => // sensible offline default
   ({ name: p.name, type: "period", max: p.max, min: p.min, color: p.color }));
 let selectedInterval = "";
 let intervalRoots = [];           // top of the timescale tree (the eons)
+let intById = new Map();          // interval id -> node
 const expandedInts = new Set();   // ids of expanded tree nodes
 
 /* Wire each interval to its parent so the picker can show a drill-down tree
  * (eon ▸ era ▸ period ▸ epoch ▸ age). */
 function buildIntervalTree() {
-  const byId = new Map(INTERVALS.filter((it) => it.id != null).map((it) => [it.id, it]));
+  intById = new Map(INTERVALS.filter((it) => it.id != null).map((it) => [it.id, it]));
   INTERVALS.forEach((it) => (it.children = []));
   intervalRoots = [];
   for (const it of INTERVALS) {
-    const parent = it.parent != null ? byId.get(it.parent) : null;
+    const parent = it.parent != null ? intById.get(it.parent) : null;
     if (parent) parent.children.push(it);
     else intervalRoots.push(it);
   }
@@ -284,9 +285,10 @@ function intTreeHtml(nodes, depth) {
     const has = n.children && n.children.length;
     const open = expandedInts.has(n.id);
     const tw = has
-      ? `<span class="tw" data-tog="${esc(n.id)}">${open ? "▾" : "▸"}</span>`
+      ? `<span class="tw" data-tog="${esc(n.id)}" title="${open ? "Collapse" : "Expand"}">${open ? "▾" : "▸"}</span>`
       : `<span class="tw none"></span>`;
-    let html = `<div class="opt tnode" data-val="${esc(n.name)}" style="padding-left:${6 + depth * 14}px">
+    const sel = n.name === selectedInterval ? " sel" : "";
+    let html = `<div class="opt tnode${sel}" data-val="${esc(n.name)}" style="padding-left:${6 + depth * 16}px">
       ${tw}<span class="swatch" style="background:${n.color}"></span>
       <span class="nm">${esc(n.name)}</span>
       <span class="ct">${fmtMa(n.max)}–${fmtMa(n.min)}</span>
@@ -296,6 +298,15 @@ function intTreeHtml(nodes, depth) {
   }).join("");
 }
 
+/* Open every ancestor of the named interval so a prior choice is visible. */
+function expandAncestors(name) {
+  let it = INTERVALS.find((x) => x.name === name);
+  while (it && it.parent != null) {
+    expandedInts.add(it.parent);
+    it = intById.get(it.parent);
+  }
+}
+
 function intSync() {
   intItems = [...intBox.querySelectorAll(".opt")].map((el) => el.dataset.val);
   intActive = -1;
@@ -303,20 +314,29 @@ function intSync() {
 function intShow() { intBox.classList.remove("hidden"); }
 function intHide() { intBox.classList.add("hidden"); intActive = -1; }
 
-function intRender(q) {
-  const ql = q.trim().toLowerCase();
-  // A persistent "all of time" reset at the very top.
-  const anyRow = `<div class="opt" data-val=""><span class="tw none"></span>
-     <span class="nm">Any time</span><span class="lvl">all ages</span></div>`;
-  if (ql) {
-    // Typing flattens to a grouped, filtered list so search stays fast.
-    const list = INTERVALS.filter((it) => it.name.toLowerCase().includes(ql));
-    intBox.innerHTML = list.length ? intGrouped(list)
-      : `<div class="grp">No interval matches “${esc(q)}”</div>`;
-  } else {
-    // Empty → the full drill-down tree.
-    intBox.innerHTML = anyRow + intTreeHtml(intervalRoots, 0);
+const INT_HINT = `<div class="tree-hint">Click <b>▸</b> to open a branch · click a name to choose it</div>`;
+const ANY_ROW = `<div class="opt tnode" data-val=""><span class="tw none"></span>
+   <span class="nm">Any time</span><span class="lvl">all ages</span></div>`;
+
+/* The browsable tree. scrollToSel centres the current pick (used when re-opening
+ * the field); leave it off when just toggling a branch so the view stays put. */
+function intRenderTree(scrollToSel) {
+  if (selectedInterval) expandAncestors(selectedInterval);
+  intBox.innerHTML = INT_HINT + ANY_ROW + intTreeHtml(intervalRoots, 0);
+  intSync();
+  intShow();
+  if (scrollToSel) {
+    const sel = intBox.querySelector(".opt.sel");
+    if (sel) sel.scrollIntoView({ block: "center" });
   }
+}
+
+/* Flat, filtered results while the user is typing. */
+function intRenderSearch(q) {
+  const ql = q.trim().toLowerCase();
+  const list = INTERVALS.filter((it) => it.name.toLowerCase().includes(ql));
+  intBox.innerHTML = list.length ? intGrouped(list)
+    : `<div class="grp">No interval matches “${esc(q)}”</div>`;
   intSync();
   intShow();
 }
@@ -347,9 +367,11 @@ function intSetActive(i) {
 intInput.addEventListener("input", () => {
   // Typing invalidates a prior pick until they choose a real interval again.
   selectedInterval = "";
-  intRender(intInput.value);
+  const q = intInput.value.trim();
+  q ? intRenderSearch(q) : intRenderTree(false);
 });
-intInput.addEventListener("focus", () => intRender(intInput.value));
+// Re-opening the field always shows the tree, scrolled to the current pick.
+intInput.addEventListener("focus", () => intRenderTree(true));
 intInput.addEventListener("keydown", (e) => {
   if (intBox.classList.contains("hidden")) return;
   if (e.key === "ArrowDown") { e.preventDefault(); intSetActive(intActive + 1); }
@@ -363,9 +385,10 @@ intBox.addEventListener("mousedown", (e) => {
     e.preventDefault();
     const id = tog.dataset.tog;
     expandedInts.has(id) ? expandedInts.delete(id) : expandedInts.add(id);
-    const scroll = intBox.scrollTop;
-    intRender("");
-    intBox.scrollTop = scroll;
+    intRenderTree(false);
+    // Keep the row you just toggled where it was instead of jumping to the top.
+    const row = intBox.querySelector(`.tw[data-tog="${CSS.escape(id)}"]`)?.closest(".tnode");
+    if (row) row.scrollIntoView({ block: "nearest" });
     return;
   }
   const opt = e.target.closest(".opt");
@@ -830,31 +853,47 @@ let taxIndex = []; // rebuilt each render: maps a row's data-tk to its node
 function taxNodeHtml(node, depth) {
   const key = taxIndex.push(node) - 1;
   const has = node.children && node.children.length;
+  const open = node.expanded && has;
   const tw = node.loading ? `<span class="tw">⋯</span>`
-    : (node.children === null || has) ? `<span class="tw" data-tk="${key}">${node.expanded && has ? "▾" : "▸"}</span>`
-    : `<span class="tw none"></span>`;
+    : (node.children === null || has)
+      ? `<span class="tw" data-tk="${key}" title="${open ? "Collapse" : "Expand"}">${open ? "▾" : "▸"}</span>`
+      : `<span class="tw none"></span>`;
   const meta = node.noc != null ? `<span class="ct">${(+node.noc).toLocaleString()}</span>` : "";
   const rank = node.rnk ? `<span class="rk">${esc(node.rnk)}</span>` : "";
-  let html = `<div class="opt tnode" data-val="${esc(node.name)}" style="padding-left:${6 + depth * 14}px">
+  const sel = node.name === taxonInput.value.trim() ? " sel" : "";
+  let html = `<div class="opt tnode${sel}" data-val="${esc(node.name)}" style="padding-left:${6 + depth * 16}px">
     ${tw}<span class="nm">${esc(node.name)}</span>${rank}${meta}</div>`;
-  if (node.expanded && has) html += node.children.map((c) => taxNodeHtml(c, depth + 1)).join("");
+  if (open) html += node.children.map((c) => taxNodeHtml(c, depth + 1)).join("");
   return html;
 }
 
+const TAX_HINT = `<div class="tree-hint">Click <b>▸</b> to open a group · click a name to choose it</div>`;
+
 function showPopular() { // now renders the browsable tree
   taxIndex = [];
-  suggestBox.innerHTML = taxRoots.map((g) =>
+  suggestBox.innerHTML = TAX_HINT + taxRoots.map((g) =>
     `<div class="grp">${esc(g.group)}</div>` + g.nodes.map((n) => taxNodeHtml(n, 0)).join("")
   ).join("");
   syncAcItems();
   showSuggest();
 }
 
+function scrollTaxNodeIntoView(node) {
+  const i = taxIndex.indexOf(node);
+  if (i < 0) return;
+  const row = suggestBox.querySelector(`.tw[data-tk="${i}"]`)?.closest(".tnode");
+  if (row) row.scrollIntoView({ block: "nearest" });
+}
+
 async function expandTaxonNode(node) {
   if (node.loading) return;
-  if (node.children !== null) { node.expanded = !node.expanded; showPopular(); return; }
+  if (node.children !== null) { // already loaded — just toggle
+    node.expanded = !node.expanded;
+    showPopular(); scrollTaxNodeIntoView(node);
+    return;
+  }
   node.loading = true;
-  const scroll = suggestBox.scrollTop; showPopular(); suggestBox.scrollTop = scroll;
+  showPopular(); scrollTaxNodeIntoView(node);
   try {
     const sel = node.oid ? `id=${String(node.oid).replace(/\D/g, "")}`
                          : `name=${encodeURIComponent(node.name)}`;
@@ -868,7 +907,7 @@ async function expandTaxonNode(node) {
       .slice(0, 60);
   } catch (e) { node.children = []; }
   node.loading = false; node.expanded = true;
-  const s2 = suggestBox.scrollTop; showPopular(); suggestBox.scrollTop = s2;
+  showPopular(); scrollTaxNodeIntoView(node);
 }
 
 let acReq = 0;
@@ -918,8 +957,11 @@ taxonInput.addEventListener("input", () => {
   acTimer = setTimeout(() => liveSuggest(q), 180);
 });
 taxonInput.addEventListener("focus", () => {
-  const q = taxonInput.value.trim();
-  q.length >= 2 ? liveSuggest(q) : showPopular();
+  // Re-opening the field shows the browsable tree (with the current pick
+  // highlighted); typing then switches to live search.
+  showPopular();
+  const sel = suggestBox.querySelector(".opt.sel");
+  if (sel) sel.scrollIntoView({ block: "center" });
 });
 taxonInput.addEventListener("keydown", (e) => {
   if (suggestBox.classList.contains("hidden")) return;

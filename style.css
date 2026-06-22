@@ -68,7 +68,7 @@ a { color: var(--accent); }
 .suggest {
   position: absolute; top: calc(100% - 1px); left: 0; right: 0; z-index: 30;
   background: var(--panel-solid); border: 1px solid var(--accent); border-top: none;
-  border-radius: 0 0 8px 8px; max-height: 320px; overflow-y: auto;
+  border-radius: 0 0 8px 8px; max-height: min(62vh, 480px); overflow-y: auto;
   box-shadow: 0 10px 28px #000b;
 }
 .suggest.hidden { display: none; }
@@ -84,15 +84,29 @@ a { color: var(--accent); }
 .suggest .opt .ct { margin-left: auto; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* Tree rows in the interval / taxon pickers */
-.suggest .tnode { align-items: center; }
+.suggest .tnode { align-items: center; padding: 6px 11px 6px 8px; gap: 8px; }
+/* The expand/collapse control is a clear little button so it reads as clickable */
 .suggest .tw {
-  flex: 0 0 16px; width: 16px; text-align: center; color: var(--muted);
-  font-size: 10px; cursor: pointer; user-select: none; border-radius: 4px;
+  flex: 0 0 22px; width: 22px; height: 22px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 11px; line-height: 1; color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px; background: #0c1018;
+  cursor: pointer; user-select: none;
 }
-.suggest .tw:hover { background: #2a3548; color: var(--text); }
-.suggest .tw.none { cursor: default; }
+.suggest .tw:hover { border-color: var(--accent); background: #18283a; color: var(--accent); }
+.suggest .tw.none { border: none; background: none; cursor: default; visibility: hidden; }
+.suggest .tnode .nm { flex: 0 1 auto; }
 .suggest .tnode .ct { margin-left: auto; }
 .suggest .tnode .rk { font-size: 10px; }
+/* The currently-chosen node */
+.suggest .opt.sel { background: #16263a; box-shadow: inset 3px 0 0 var(--accent); }
+.suggest .opt.sel .nm { color: var(--accent); font-weight: 600; }
+/* Sticky one-line help at the top of the tree */
+.suggest .tree-hint {
+  position: sticky; top: 0; z-index: 2; background: var(--panel-solid);
+  color: var(--muted); font-size: 11px; padding: 8px 11px; border-bottom: 1px solid var(--border);
+}
+.suggest .tree-hint b { color: var(--text); font-weight: 600; }
 
 .row { display: flex; gap: 10px; align-items: flex-end; }
 .fld.half { flex: 1; }
