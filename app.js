@@ -460,6 +460,9 @@ async function search() {
   const params = new URLSearchParams();
   params.set("show", "loc,time,paleoloc");
   params.set("limit", limit);
+  // Pin PBDB's paleo-coordinates to the Scotese (PALEOMAP) model so the plotted
+  // fossils match the GPlates PALEOMAP coastlines we draw in ancient-Earth mode.
+  params.set("pgm", "scotese");
   // base_name carries both the included taxon and any excluded sub-groups,
   // using PBDB's "^" exclusion syntax (e.g. Dinosauria^Aves = dinosaurs sans birds).
   if (taxon) {
@@ -575,8 +578,10 @@ function applyCoords(recs) {
  * the continents at the relevant age, drawn from GPlates' coastline service so
  * the fossils sit on the world as it actually was. */
 const GPLATES = "https://gws.gplates.org/reconstruct/coastlines/";
-const PALEO_MODEL = "MERDITH2021"; // plate model spanning 0–1000 Ma
-const PALEO_MAX_MA = 1000;
+// Scotese PALEOMAP — the same model PBDB uses for its paleo-coordinates
+// (pgm=scotese), so fossils sit on their true coastlines. Spans 0–750 Ma.
+const PALEO_MODEL = "PALEOMAP";
+const PALEO_MAX_MA = 750;
 const paleoCache = new Map(); // rounded age (Ma) -> Promise<features|null>
 
 globe.polygonGeoJsonGeometry((d) => d.geometry)
