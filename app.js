@@ -177,6 +177,10 @@ function setStatus(msg, cls = "") {
   el.className = "status " + cls;
 }
 
+/* Persist small sets (e.g. which tree branches are expanded) across reloads. */
+const loadSet = (key) => { try { return new Set(JSON.parse(localStorage.getItem(key) || "[]")); } catch (e) { return new Set(); } };
+const saveSet = (key, set) => { try { localStorage.setItem(key, JSON.stringify([...set])); } catch (e) { /* private mode */ } };
+
 /* -------------------------------------------------------- Build controls --- */
 function buildLegend() {
   const ul = $("legend-list");
@@ -217,10 +221,14 @@ function buildIntervalTree() {
   const bySort = (a, b) => a.min - b.min || a.max - b.max;
   intervalRoots.sort(bySort);
   INTERVALS.forEach((it) => it.children.sort(bySort));
-  // Open down to period level by default so the common picks are visible.
+  // Restore the branches expanded last session, else open to period level so the
+  // common picks are visible by default.
   expandedInts.clear();
-  INTERVALS.forEach((it) => { if (it.type === "eon" || it.type === "era") expandedInts.add(it.id); });
+  const saved = loadSet(INT_STORE);
+  if (saved.size) saved.forEach((id) => expandedInts.add(id));
+  else INTERVALS.forEach((it) => { if (it.type === "eon" || it.type === "era") expandedInts.add(it.id); });
 }
+const INT_STORE = "pdmap.int.exp";
 buildIntervalTree();
 
 const fmtMa = (v) => v == null ? "?" :
@@ -347,9 +355,16 @@ function intHint() {
     : "Any eon, era, period, epoch or age. Start typing to search, or leave blank for all of time.";
 }
 
+function intervalPath(name) {
+  let it = INTERVALS.find((x) => x.name === name);
+  const names = [];
+  while (it) { names.unshift(it.name); it = it.parent != null ? intById.get(it.parent) : null; }
+  return names.join(" › ");
+}
 function pickInterval(name) {
   selectedInterval = name;
   intInput.value = name;
+  intInput.title = name ? intervalPath(name) : ""; // full-path tooltip
   intHide();
   intHint();
   search();
@@ -368,8 +383,12 @@ intInput.addEventListener("input", () => {
   const q = intInput.value.trim();
   q ? intRenderSearch(q) : intRenderTree(false);
 });
-// Re-opening the field always shows the tree, scrolled to the current pick.
-intInput.addEventListener("focus", () => intRenderTree(true));
+// Re-opening the field always shows the tree, scrolled to the current pick, and
+// closes any other open picker. A click reopens it after a pick, too.
+intInput.addEventListener("focus", () => { closeOtherPickers(intHide); intRenderTree(true); });
+intInput.addEventListener("click", () => {
+  if (intBox.classList.contains("hidden")) { closeOtherPickers(intHide); intRenderTree(true); }
+});
 intInput.addEventListener("keydown", (e) => {
   if (intBox.classList.contains("hidden")) return;
   if (e.key === "ArrowDown") { e.preventDefault(); intSetActive(intActive + 1); }
@@ -387,6 +406,7 @@ intBox.addEventListener("mousedown", (e) => {
   if (row.dataset.exp === "1" && row.dataset.int) { // click a branch row → expand/collapse
     const id = row.dataset.int;
     expandedInts.has(id) ? expandedInts.delete(id) : expandedInts.add(id);
+    saveSet(INT_STORE, expandedInts);
     intRenderTree(false);
     const r2 = intBox.querySelector(`.opt[data-int="${CSS.escape(id)}"]`);
     if (r2) r2.scrollIntoView({ block: "nearest" }); // keep it where it was
@@ -839,6 +859,23 @@ function freshTaxRoots() {
   }));
 }
 
+/* A registry of every picker's hide(), so opening one closes the others — never
+ * two trees on screen at once. Plus tiny localStorage helpers for remembering
+ * which branches were expanded, across reloads. */
+const pickerHides = [];
+const closeOtherPickers = (except) => pickerHides.forEach((h) => h !== except && h());
+
+/* Full classification path for a taxon, for the field's hover tooltip. */
+const lineageCache = new Map();
+function taxonLineage(name) {
+  if (lineageCache.has(name)) return lineageCache.get(name);
+  const p = fetch(`${PBDB}/taxa/list.json?name=${encodeURIComponent(name)}&rel=all_parents&status=accepted`)
+    .then((r) => r.json()).then((d) => (d.records || []).map((r) => r.nam).filter(Boolean).join(" › "))
+    .catch(() => "");
+  lineageCache.set(name, p);
+  return p;
+}
+
 /* Children of a taxon, fetched once and shared between every picker. */
 const taxChildCache = new Map();
 function fetchTaxonChildren(node) {
@@ -863,12 +900,16 @@ function fetchTaxonChildren(node) {
  * tree. Powers both the "Taxon name" and "Exclude groups" fields. Its tree state
  * (expanded branches, fetched children) lives on `roots`, so it persists between
  * openings. */
-function createTaxonPicker(input, box, { isSel, onPick, closeOnPick }) {
+function createTaxonPicker(input, box, { isSel, onPick, closeOnPick, storeKey, allowFreeText }) {
   const roots = freshTaxRoots();
   let index = [], items = [], active = -1, timer = null, req = 0;
+  const expandedKeys = storeKey ? loadSet(storeKey) : new Set(); // persisted branches
+  const keyOf = (n) => n.oid ? `id:${n.oid}` : `nm:${n.name}`;
 
   const show = () => box.classList.remove("hidden");
   const hide = () => { box.classList.add("hidden"); active = -1; };
+  const openTree = (scrollSel) => { closeOtherPickers(hide); renderTree(scrollSel); };
+  pickerHides.push(hide);
   const sync = () => { items = [...box.querySelectorAll(".opt")].map((el) => el.dataset.val); active = -1; };
 
   function nodeHtml(node, depth) {
@@ -902,14 +943,40 @@ function createTaxonPicker(input, box, { isSel, onPick, closeOnPick }) {
     if (row) row.scrollIntoView({ block: "nearest" });
   }
 
+  function rememberExpansion(node) {
+    if (!storeKey) return;
+    node.expanded ? expandedKeys.add(keyOf(node)) : expandedKeys.delete(keyOf(node));
+    saveSet(storeKey, expandedKeys);
+  }
+
   async function expand(node) {
     if (node.loading) return;
-    if (node.children !== null) { node.expanded = !node.expanded; renderTree(); scrollNode(node); return; }
+    if (node.children !== null) {
+      node.expanded = !node.expanded; rememberExpansion(node);
+      renderTree(); scrollNode(node); return;
+    }
     node.loading = true; renderTree(); scrollNode(node);
     node.children = await fetchTaxonChildren(node);
-    node.loading = false; node.expanded = true;
+    node.loading = false; node.expanded = true; rememberExpansion(node);
     renderTree(); scrollNode(node);
   }
+
+  /* Re-open the branches the user had expanded last time (fetching children as
+   * needed) so the tree looks the same after a reload. */
+  async function restoreExpanded() {
+    if (!expandedKeys.size) return;
+    const visit = async (nodes) => {
+      for (const n of nodes) {
+        if (!expandedKeys.has(keyOf(n))) continue;
+        if (n.children === null) n.children = await fetchTaxonChildren(n);
+        n.expanded = true;
+        await visit(n.children || []);
+      }
+    };
+    await visit(roots.flatMap((g) => g.nodes));
+    if (!box.classList.contains("hidden")) renderTree();
+  }
+  restoreExpanded();
 
   async function liveSearch(q) {
     const my = ++req;
@@ -951,13 +1018,20 @@ function createTaxonPicker(input, box, { isSel, onPick, closeOnPick }) {
     if (q.length < 2) { renderTree(); return; }
     timer = setTimeout(() => liveSearch(q), 180);
   });
-  input.addEventListener("focus", () => renderTree(true)); // re-opening shows the tree
+  input.addEventListener("focus", () => openTree(true)); // re-opening shows the tree
+  // Clicking the field when it's closed (e.g. after a pick) reopens the tree,
+  // without needing to click away and back first.
+  input.addEventListener("click", () => { if (box.classList.contains("hidden")) openTree(true); });
   input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { hide(); return; }
+    if (e.key === "Enter") {
+      if (active >= 0) { e.preventDefault(); choose(items[active]); }
+      else if (allowFreeText && input.value.trim()) { e.preventDefault(); choose(input.value.trim()); }
+      return;
+    }
     if (box.classList.contains("hidden")) return;
     if (e.key === "ArrowDown") { e.preventDefault(); setActive(active + 1); }
     else if (e.key === "ArrowUp") { e.preventDefault(); setActive(active - 1); }
-    else if (e.key === "Enter" && active >= 0) { e.preventDefault(); choose(items[active]); }
-    else if (e.key === "Escape") { hide(); }
   });
   box.addEventListener("mousedown", (e) => {
     // Keep this click from reaching the outside-click handler — re-rendering the
@@ -981,7 +1055,12 @@ const taxonInput = $("f-taxon");
 const taxonPicker = createTaxonPicker(taxonInput, $("taxon-suggest"), {
   isSel: (name) => name === taxonInput.value.trim(),
   closeOnPick: true,
-  onPick: (name) => { taxonInput.value = name; search(); },
+  storeKey: "pdmap.tax.exp",
+  onPick: (name) => {
+    taxonInput.value = name;
+    taxonLineage(name).then((p) => { taxonInput.title = p || name; }); // full-path tooltip
+    search();
+  },
 });
 
 /* "Exclude groups" field — multiple removable chips, same tree/search picker */
@@ -1001,9 +1080,12 @@ $("exclude-chips").addEventListener("click", (e) => {
 const excludePicker = createTaxonPicker($("f-exclude"), $("exclude-suggest"), {
   isSel: (name) => excludes.includes(name),
   closeOnPick: false,
+  allowFreeText: true,        // type any name + Enter to exclude it
+  storeKey: "pdmap.exc.exp",
   onPick: addExclude,
 });
 renderExcludeChips();
+pickerHides.push(intHide); // so opening the taxon/exclude tree also closes the interval tree
 
 /* One outside-click handler closes whichever picker is open. */
 document.addEventListener("mousedown", (e) => {
@@ -1056,8 +1138,10 @@ $("f-base").addEventListener("change", (e) => { if (!usePaleo) setBaseLayer(e.ta
 (async function init() {
   await loadTimescale();
   $("f-taxon").value = "Dinosauria";
+  taxonLineage("Dinosauria").then((p) => { taxonInput.title = p || "Dinosauria"; });
   selectedInterval = "Cretaceous";
   intInput.value = "Cretaceous";
+  intInput.title = intervalPath("Cretaceous");
   intHint();
   search();
 })();
