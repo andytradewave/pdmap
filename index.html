@@ -43,8 +43,12 @@
 
       <label class="fld">
         <span>Exclude groups</span>
-        <input id="f-exclude" type="text" placeholder="e.g. Aves, Theropoda" autocomplete="off" />
-        <small>Comma-separated taxa to subtract from the taxon above (e.g. dinosaurs without birds).</small>
+        <div id="exclude-chips" class="chips-in"></div>
+        <div class="suggest-wrap">
+          <input id="f-exclude" type="text" placeholder="Type or browse to add…" autocomplete="off" />
+          <div id="exclude-suggest" class="suggest hidden"></div>
+        </div>
+        <small>Subtract sub-groups from the taxon above (e.g. dinosaurs without birds).</small>
       </label>
 
       <label class="fld">

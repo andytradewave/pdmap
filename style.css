@@ -107,6 +107,29 @@ a { color: var(--accent); }
   color: var(--muted); font-size: 11px; padding: 8px 11px; border-bottom: 1px solid var(--border);
 }
 .suggest .tree-hint b { color: var(--text); font-weight: 600; }
+/* The "use ›" select button on each tree row (subtle until you hover the row) */
+.suggest .pick {
+  flex: 0 0 auto; margin-left: 8px; font-size: 10px; font-weight: 700;
+  letter-spacing: 0.3px; color: var(--accent); background: transparent;
+  border: 1px solid var(--border); border-radius: 6px; padding: 2px 7px;
+  cursor: pointer; opacity: 0; transition: opacity 0.1s;
+}
+.suggest .tnode:hover .pick, .suggest .opt.active .pick, .suggest .opt.sel .pick { opacity: 1; }
+.suggest .pick:hover { background: var(--accent); color: #04121c; border-color: var(--accent); }
+
+/* Exclude-groups chips */
+.chips-in { display: flex; flex-wrap: wrap; gap: 5px; margin: 0 0 6px; }
+.chips-in.empty { display: none; }
+.chip-tag {
+  display: inline-flex; align-items: center; gap: 3px; font-size: 12px;
+  background: #16263a; border: 1px solid var(--border); border-radius: 999px;
+  padding: 3px 5px 3px 10px; color: var(--text);
+}
+.chip-tag .x {
+  background: none; border: none; color: var(--muted); font-size: 14px;
+  line-height: 1; cursor: pointer; padding: 0 3px;
+}
+.chip-tag .x:hover { color: var(--danger); }
 
 .row { display: flex; gap: 10px; align-items: flex-end; }
 .fld.half { flex: 1; }
@@ -232,6 +255,9 @@ button:hover { filter: brightness(1.08); }
   }
   #panel-close { display: block; }
   .panel-head h1 { font-size: 24px; }
+
+  /* No hover on touch — keep the select button visible */
+  .suggest .pick { opacity: 1; }
 
   /* Bigger touch targets */
   .fld input[type="text"], .fld input[type="number"], .fld select { padding: 11px 12px; }

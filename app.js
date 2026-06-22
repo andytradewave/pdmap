@@ -284,15 +284,13 @@ function intTreeHtml(nodes, depth) {
   return nodes.map((n) => {
     const has = n.children && n.children.length;
     const open = expandedInts.has(n.id);
-    const tw = has
-      ? `<span class="tw" data-tog="${esc(n.id)}" title="${open ? "Collapse" : "Expand"}">${open ? "▾" : "▸"}</span>`
-      : `<span class="tw none"></span>`;
+    const tw = has ? `<span class="tw">${open ? "▾" : "▸"}</span>` : `<span class="tw none"></span>`;
     const sel = n.name === selectedInterval ? " sel" : "";
-    let html = `<div class="opt tnode${sel}" data-val="${esc(n.name)}" style="padding-left:${6 + depth * 16}px">
+    let html = `<div class="opt tnode${sel}" data-val="${esc(n.name)}" data-int="${esc(n.id)}" data-exp="${has ? 1 : 0}" style="padding-left:${6 + depth * 16}px">
       ${tw}<span class="swatch" style="background:${n.color}"></span>
       <span class="nm">${esc(n.name)}</span>
       <span class="ct">${fmtMa(n.max)}–${fmtMa(n.min)}</span>
-      <span class="lvl">${esc(n.type)}</span></div>`;
+      <span class="lvl">${esc(n.type)}</span>${PICK_BTN(n.name)}</div>`;
     if (has && open) html += intTreeHtml(n.children, depth + 1);
     return html;
   }).join("");
@@ -380,19 +378,21 @@ intInput.addEventListener("keydown", (e) => {
   else if (e.key === "Escape") { intHide(); }
 });
 intBox.addEventListener("mousedown", (e) => {
-  const tog = e.target.closest(".tw[data-tog]");
-  if (tog) { // expand/collapse a branch without selecting it or closing the box
-    e.preventDefault();
-    const id = tog.dataset.tog;
+  e.stopPropagation(); // see note in the taxon picker — avoid a false outside-click on re-render
+  const pick = e.target.closest("[data-pick]");
+  if (pick) { e.preventDefault(); pickInterval(pick.closest(".opt").dataset.val); return; }
+  const row = e.target.closest(".opt");
+  if (!row) return;
+  e.preventDefault();
+  if (row.dataset.exp === "1" && row.dataset.int) { // click a branch row → expand/collapse
+    const id = row.dataset.int;
     expandedInts.has(id) ? expandedInts.delete(id) : expandedInts.add(id);
     intRenderTree(false);
-    // Keep the row you just toggled where it was instead of jumping to the top.
-    const row = intBox.querySelector(`.tw[data-tog="${CSS.escape(id)}"]`)?.closest(".tnode");
-    if (row) row.scrollIntoView({ block: "nearest" });
+    const r2 = intBox.querySelector(`.opt[data-int="${CSS.escape(id)}"]`);
+    if (r2) r2.scrollIntoView({ block: "nearest" }); // keep it where it was
     return;
   }
-  const opt = e.target.closest(".opt");
-  if (opt) { e.preventDefault(); pickInterval(opt.dataset.val); }
+  pickInterval(row.dataset.val); // leaf / "Any time" → select
 });
 document.addEventListener("mousedown", (e) => {
   if (!e.target.closest("#f-interval") && !e.target.closest("#interval-suggest")) intHide();
@@ -419,7 +419,6 @@ let currentTaxon = ""; // remembered so locality detail can float matches to the
 
 async function search() {
   const taxon = $("f-taxon").value.trim();
-  const exclude = $("f-exclude").value.trim();
   const formation = $("f-formation").value.trim();
   const maxma = $("f-maxma").value.trim();
   const minma = $("f-minma").value.trim();
@@ -447,7 +446,7 @@ async function search() {
   // base_name carries both the included taxon and any excluded sub-groups,
   // using PBDB's "^" exclusion syntax (e.g. Dinosauria^Aves = dinosaurs sans birds).
   if (taxon) {
-    const ex = exclude.split(",").map((s) => s.trim()).filter(Boolean).map((s) => "^" + s).join("");
+    const ex = excludes.map((s) => "^" + s).join("");
     params.set("base_name", taxon + ex);
   }
   if (formation) params.set("formation", formation);
@@ -823,12 +822,6 @@ const POPULAR = [
     "Chondrichthyes", "Insecta"] },
 ];
 
-const taxonInput = $("f-taxon");
-const suggestBox = $("taxon-suggest");
-let acItems = [];     // current option values, in display order
-let acActive = -1;    // keyboard-highlighted index
-let acTimer = null;
-
 const optRow = (name, rank, count) =>
   `<div class="opt" data-val="${esc(name)}">
      <span class="nm">${esc(name)}</span>
@@ -836,154 +829,194 @@ const optRow = (name, rank, count) =>
      ${count ? `<span class="ct">${count}</span>` : ""}
    </div>`;
 
-function syncAcItems() {
-  acItems = [...suggestBox.querySelectorAll(".opt")].map((el) => el.dataset.val);
-  acActive = -1;
+const PICK_BTN = (name) => `<button type="button" class="pick" data-pick title="Search ${esc(name)}">use ›</button>`;
+const TAX_HINT = `<div class="tree-hint">Click a row to open it · click <b>use ›</b> to choose</div>`;
+
+function freshTaxRoots() {
+  return POPULAR.map((g) => ({
+    group: g.group,
+    nodes: g.items.map((name) => ({ name, children: null, expanded: false, loading: false })),
+  }));
 }
-function showSuggest() { suggestBox.classList.remove("hidden"); }
-function hideSuggest() { suggestBox.classList.add("hidden"); acActive = -1; }
 
-/* ---- lazy taxon tree: curated roots, children fetched from PBDB on demand --- */
-const taxRoots = POPULAR.map((g) => ({
-  group: g.group,
-  nodes: g.items.map((name) => ({ name, children: null, expanded: false, loading: false })),
-}));
-let taxIndex = []; // rebuilt each render: maps a row's data-tk to its node
+/* Children of a taxon, fetched once and shared between every picker. */
+const taxChildCache = new Map();
+function fetchTaxonChildren(node) {
+  const key = node.oid ? `id:${node.oid}` : `nm:${node.name}`;
+  if (taxChildCache.has(key)) return taxChildCache.get(key);
+  const sel = node.oid ? `id=${String(node.oid).replace(/\D/g, "")}`
+                       : `name=${encodeURIComponent(node.name)}`;
+  const p = fetch(`${PBDB}/taxa/list.json?${sel}&rel=children&status=accepted&show=size`)
+    .then((r) => r.json())
+    .then((d) => (d.records || [])
+      .map((r) => ({ name: r.nam, oid: r.oid, rnk: RANK[+r.rnk] || "", noc: +r.noc || 0,
+        children: null, expanded: false, loading: false }))
+      .filter((c) => c.noc > 0)        // only groups that actually have fossils
+      .sort((a, b) => b.noc - a.noc)   // most-collected first
+      .slice(0, 60))
+    .catch(() => []);
+  taxChildCache.set(key, p);
+  return p;
+}
 
-function taxNodeHtml(node, depth) {
-  const key = taxIndex.push(node) - 1;
-  const has = node.children && node.children.length;
-  const open = node.expanded && has;
-  const tw = node.loading ? `<span class="tw">⋯</span>`
-    : (node.children === null || has)
-      ? `<span class="tw" data-tk="${key}" title="${open ? "Collapse" : "Expand"}">${open ? "▾" : "▸"}</span>`
+/* A reusable taxon picker: a text box with live search plus a lazy drill-down
+ * tree. Powers both the "Taxon name" and "Exclude groups" fields. Its tree state
+ * (expanded branches, fetched children) lives on `roots`, so it persists between
+ * openings. */
+function createTaxonPicker(input, box, { isSel, onPick, closeOnPick }) {
+  const roots = freshTaxRoots();
+  let index = [], items = [], active = -1, timer = null, req = 0;
+
+  const show = () => box.classList.remove("hidden");
+  const hide = () => { box.classList.add("hidden"); active = -1; };
+  const sync = () => { items = [...box.querySelectorAll(".opt")].map((el) => el.dataset.val); active = -1; };
+
+  function nodeHtml(node, depth) {
+    const key = index.push(node) - 1;
+    const has = node.children && node.children.length;
+    const expandable = node.children === null || has; // unknown or known-to-have kids
+    const open = node.expanded && has;
+    const tw = node.loading ? `<span class="tw">⋯</span>`
+      : expandable ? `<span class="tw">${open ? "▾" : "▸"}</span>`
       : `<span class="tw none"></span>`;
-  const meta = node.noc != null ? `<span class="ct">${(+node.noc).toLocaleString()}</span>` : "";
-  const rank = node.rnk ? `<span class="rk">${esc(node.rnk)}</span>` : "";
-  const sel = node.name === taxonInput.value.trim() ? " sel" : "";
-  let html = `<div class="opt tnode${sel}" data-val="${esc(node.name)}" style="padding-left:${6 + depth * 16}px">
-    ${tw}<span class="nm">${esc(node.name)}</span>${rank}${meta}</div>`;
-  if (open) html += node.children.map((c) => taxNodeHtml(c, depth + 1)).join("");
-  return html;
-}
-
-const TAX_HINT = `<div class="tree-hint">Click <b>▸</b> to open a group · click a name to choose it</div>`;
-
-function showPopular() { // now renders the browsable tree
-  taxIndex = [];
-  suggestBox.innerHTML = TAX_HINT + taxRoots.map((g) =>
-    `<div class="grp">${esc(g.group)}</div>` + g.nodes.map((n) => taxNodeHtml(n, 0)).join("")
-  ).join("");
-  syncAcItems();
-  showSuggest();
-}
-
-function scrollTaxNodeIntoView(node) {
-  const i = taxIndex.indexOf(node);
-  if (i < 0) return;
-  const row = suggestBox.querySelector(`.tw[data-tk="${i}"]`)?.closest(".tnode");
-  if (row) row.scrollIntoView({ block: "nearest" });
-}
-
-async function expandTaxonNode(node) {
-  if (node.loading) return;
-  if (node.children !== null) { // already loaded — just toggle
-    node.expanded = !node.expanded;
-    showPopular(); scrollTaxNodeIntoView(node);
-    return;
+    const meta = node.noc != null ? `<span class="ct">${(+node.noc).toLocaleString()}</span>` : "";
+    const rank = node.rnk ? `<span class="rk">${esc(node.rnk)}</span>` : "";
+    const sel = isSel(node.name) ? " sel" : "";
+    let html = `<div class="opt tnode${sel}" data-tk="${key}" data-val="${esc(node.name)}" data-exp="${expandable ? 1 : 0}" style="padding-left:${6 + depth * 16}px">
+      ${tw}<span class="nm">${esc(node.name)}</span>${rank}${meta}${PICK_BTN(node.name)}</div>`;
+    if (open) html += node.children.map((c) => nodeHtml(c, depth + 1)).join("");
+    return html;
   }
-  node.loading = true;
-  showPopular(); scrollTaxNodeIntoView(node);
-  try {
-    const sel = node.oid ? `id=${String(node.oid).replace(/\D/g, "")}`
-                         : `name=${encodeURIComponent(node.name)}`;
-    const recs = await fetch(`${PBDB}/taxa/list.json?${sel}&rel=children&status=accepted&show=size`)
-      .then((r) => r.json()).then((d) => d.records || []);
-    node.children = recs
-      .map((r) => ({ name: r.nam, oid: r.oid, rnk: RANK[+r.rnk] || "",
-        noc: +r.noc || 0, children: null, expanded: false, loading: false }))
-      .filter((c) => c.noc > 0)            // only groups that actually have fossils
-      .sort((a, b) => b.noc - a.noc)       // most-collected first
-      .slice(0, 60);
-  } catch (e) { node.children = []; }
-  node.loading = false; node.expanded = true;
-  showPopular(); scrollTaxNodeIntoView(node);
+
+  function renderTree(scrollSel) {
+    index = [];
+    box.innerHTML = TAX_HINT + roots.map((g) =>
+      `<div class="grp">${esc(g.group)}</div>` + g.nodes.map((n) => nodeHtml(n, 0)).join("")).join("");
+    sync(); show();
+    if (scrollSel) { const s = box.querySelector(".opt.sel"); if (s) s.scrollIntoView({ block: "center" }); }
+  }
+
+  function scrollNode(node) {
+    const i = index.indexOf(node);
+    const row = i >= 0 && box.querySelector(`.opt[data-tk="${i}"]`);
+    if (row) row.scrollIntoView({ block: "nearest" });
+  }
+
+  async function expand(node) {
+    if (node.loading) return;
+    if (node.children !== null) { node.expanded = !node.expanded; renderTree(); scrollNode(node); return; }
+    node.loading = true; renderTree(); scrollNode(node);
+    node.children = await fetchTaxonChildren(node);
+    node.loading = false; node.expanded = true;
+    renderTree(); scrollNode(node);
+  }
+
+  async function liveSearch(q) {
+    const my = ++req;
+    try {
+      const recs = ((await fetch(`${PBDB}/taxa/auto.json?name=${encodeURIComponent(q)}&limit=12`)
+        .then((r) => r.json())).records) || [];
+      if (my !== req) return; // superseded by a newer keystroke
+      // Collapse the duplicate entries PBDB returns for one clade, keyed on
+      // name + occurrence count so cross-code homonyms (e.g. Euhelopus) survive.
+      const byKey = new Map();
+      for (const r of recs) {
+        const k = `${r.nam}|${r.noc}`, cur = byKey.get(k);
+        if (!cur || (/^[A-Z]/.test(r.nam) && !/^[A-Z]/.test(cur.nam))) byKey.set(k, r);
+      }
+      const list = [...byKey.values()];
+      box.innerHTML = list.length
+        ? list.map((r) => optRow(r.nam, RANK[+r.rnk] || "", (+r.noc).toLocaleString())).join("")
+        : `<div class="grp">No matching taxa — check the spelling</div>`;
+      sync(); show();
+    } catch (e) { /* network blip — leave the box as-is */ }
+  }
+
+  function choose(val) {
+    onPick(val);
+    if (closeOnPick) hide();
+    else { input.value = ""; renderTree(); } // exclude: clear & keep browsing for more
+  }
+  function setActive(i) {
+    const opts = box.querySelectorAll(".opt");
+    if (!opts.length) return;
+    active = (i + opts.length) % opts.length;
+    opts.forEach((el, n) => el.classList.toggle("active", n === active));
+    opts[active].scrollIntoView({ block: "nearest" });
+  }
+
+  input.addEventListener("input", () => {
+    clearTimeout(timer);
+    const q = input.value.trim();
+    if (q.length < 2) { renderTree(); return; }
+    timer = setTimeout(() => liveSearch(q), 180);
+  });
+  input.addEventListener("focus", () => renderTree(true)); // re-opening shows the tree
+  input.addEventListener("keydown", (e) => {
+    if (box.classList.contains("hidden")) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); setActive(active + 1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setActive(active - 1); }
+    else if (e.key === "Enter" && active >= 0) { e.preventDefault(); choose(items[active]); }
+    else if (e.key === "Escape") { hide(); }
+  });
+  box.addEventListener("mousedown", (e) => {
+    // Keep this click from reaching the outside-click handler — re-rendering the
+    // tree detaches the clicked node, which would otherwise look like an outside click.
+    e.stopPropagation();
+    const pick = e.target.closest("[data-pick]");
+    if (pick) { e.preventDefault(); choose(pick.closest(".opt").dataset.val); return; }
+    const row = e.target.closest(".opt");
+    if (!row) return;
+    e.preventDefault();
+    const node = row.dataset.tk != null ? index[+row.dataset.tk] : null;
+    if (row.dataset.exp === "1" && node) expand(node); // click a branch row → drill in
+    else choose(row.dataset.val);                       // leaf or search row → select
+  });
+
+  return { renderTree, hide };
 }
 
-let acReq = 0;
-async function liveSuggest(q) {
-  const myReq = ++acReq;
-  try {
-    const res = await fetch(`${PBDB}/taxa/auto.json?name=${encodeURIComponent(q)}&limit=10`);
-    if (myReq !== acReq) return; // a newer keystroke superseded this response
-    const recs = (await res.json()).records || [];
-    // Collapse the duplicate entries PBDB returns for one clade — e.g. "Dinosauria"
-    // recorded at six ranks. We key on name + occurrence count: same-name homonyms
-    // under different governing codes (the dinosaur vs. the plant Euhelopus) have
-    // different occurrence totals, so they're kept apart rather than merged.
-    const byKey = new Map();
-    for (const r of recs) {
-      const key = `${r.nam}|${r.noc}`;
-      const cur = byKey.get(key);
-      // Prefer the formally-capitalised spelling when both forms appear.
-      if (!cur || (/^[A-Z]/.test(r.nam) && !/^[A-Z]/.test(cur.nam))) byKey.set(key, r);
-    }
-    const list = [...byKey.values()];
-    suggestBox.innerHTML = list.length
-      ? list.map((r) => optRow(r.nam, RANK[+r.rnk] || "", (+r.noc).toLocaleString())).join("")
-      : `<div class="grp">No matching taxa — check the spelling</div>`;
-    syncAcItems();
-    showSuggest();
-  } catch (e) { /* network blip — leave the box as-is */ }
-}
+/* Main "Taxon name" field */
+const taxonInput = $("f-taxon");
+const taxonPicker = createTaxonPicker(taxonInput, $("taxon-suggest"), {
+  isSel: (name) => name === taxonInput.value.trim(),
+  closeOnPick: true,
+  onPick: (name) => { taxonInput.value = name; search(); },
+});
 
-function pickSuggestion(val) {
-  taxonInput.value = val;
-  hideSuggest();
-  search();
+/* "Exclude groups" field — multiple removable chips, same tree/search picker */
+let excludes = [];
+function renderExcludeChips() {
+  const box = $("exclude-chips");
+  box.innerHTML = excludes.map((n) =>
+    `<span class="chip-tag">${esc(n)}<button type="button" class="x" data-rm="${esc(n)}" title="Remove">×</button></span>`).join("");
+  box.classList.toggle("empty", !excludes.length);
 }
-function setActive(i) {
-  const opts = suggestBox.querySelectorAll(".opt");
-  if (!opts.length) return;
-  acActive = (i + opts.length) % opts.length;
-  opts.forEach((el, n) => el.classList.toggle("active", n === acActive));
-  opts[acActive].scrollIntoView({ block: "nearest" });
-}
+function addExclude(name) { if (!excludes.includes(name)) { excludes.push(name); renderExcludeChips(); search(); } }
+function removeExclude(name) { excludes = excludes.filter((x) => x !== name); renderExcludeChips(); search(); }
+$("exclude-chips").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-rm]");
+  if (b) removeExclude(b.dataset.rm);
+});
+const excludePicker = createTaxonPicker($("f-exclude"), $("exclude-suggest"), {
+  isSel: (name) => excludes.includes(name),
+  closeOnPick: false,
+  onPick: addExclude,
+});
+renderExcludeChips();
 
-taxonInput.addEventListener("input", () => {
-  clearTimeout(acTimer);
-  const q = taxonInput.value.trim();
-  if (q.length < 2) { showPopular(); return; }
-  acTimer = setTimeout(() => liveSuggest(q), 180);
-});
-taxonInput.addEventListener("focus", () => {
-  // Re-opening the field shows the browsable tree (with the current pick
-  // highlighted); typing then switches to live search.
-  showPopular();
-  const sel = suggestBox.querySelector(".opt.sel");
-  if (sel) sel.scrollIntoView({ block: "center" });
-});
-taxonInput.addEventListener("keydown", (e) => {
-  if (suggestBox.classList.contains("hidden")) return;
-  if (e.key === "ArrowDown") { e.preventDefault(); setActive(acActive + 1); }
-  else if (e.key === "ArrowUp") { e.preventDefault(); setActive(acActive - 1); }
-  else if (e.key === "Enter" && acActive >= 0) { e.preventDefault(); pickSuggestion(acItems[acActive]); }
-  else if (e.key === "Escape") { hideSuggest(); }
-});
-suggestBox.addEventListener("mousedown", (e) => {
-  const tog = e.target.closest(".tw[data-tk]");
-  if (tog) { e.preventDefault(); expandTaxonNode(taxIndex[+tog.dataset.tk]); return; }
-  const opt = e.target.closest(".opt");
-  if (opt) { e.preventDefault(); pickSuggestion(opt.dataset.val); }
-});
+/* One outside-click handler closes whichever picker is open. */
 document.addEventListener("mousedown", (e) => {
-  if (!e.target.closest(".suggest-wrap")) hideSuggest();
+  if (!e.target.closest(".suggest-wrap")) { taxonPicker.hide(); excludePicker.hide(); }
 });
 
 /* ----------------------------------------------------------------- Wire up --- */
-$("search-form").addEventListener("submit", (e) => { e.preventDefault(); hideSuggest(); search(); });
+$("search-form").addEventListener("submit", (e) => {
+  e.preventDefault(); taxonPicker.hide(); excludePicker.hide(); search();
+});
 $("btn-clear").addEventListener("click", () => {
   $("f-taxon").value = ""; $("f-exclude").value = ""; $("f-formation").value = "";
+  excludes = []; renderExcludeChips();
   $("f-interval").value = ""; selectedInterval = "";
   $("f-maxma").value = ""; $("f-minma").value = ""; $("f-env").value = "";
   $("f-view").checked = false; intHint();
