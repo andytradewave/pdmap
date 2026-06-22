@@ -35,19 +35,31 @@
       <label class="fld">
         <span>Taxon name</span>
         <div class="suggest-wrap">
-          <input id="f-taxon" type="text" placeholder="Type, or pick a popular group…" autocomplete="off" />
+          <input id="f-taxon" type="text" placeholder="Type to search, or browse the tree…" autocomplete="off" />
           <div id="taxon-suggest" class="suggest hidden"></div>
         </div>
-        <small>Any rank — includes all sub-groups. Start typing for live suggestions, or leave blank for everything.</small>
+        <small>Any rank — includes all sub-groups. Type to search, or click ▸ to drill down the tree of life.</small>
+      </label>
+
+      <label class="fld">
+        <span>Exclude groups</span>
+        <input id="f-exclude" type="text" placeholder="e.g. Aves, Theropoda" autocomplete="off" />
+        <small>Comma-separated taxa to subtract from the taxon above (e.g. dinosaurs without birds).</small>
       </label>
 
       <label class="fld">
         <span>Time interval</span>
         <div class="suggest-wrap">
-          <input id="f-interval" type="text" placeholder="e.g. Jurassic, Late Cretaceous, Tithonian…" autocomplete="off" />
+          <input id="f-interval" type="text" placeholder="Type to search, or browse the tree…" autocomplete="off" />
           <div id="interval-suggest" class="suggest hidden"></div>
         </div>
-        <small id="interval-hint">Any eon, era, period, epoch or age. Start typing to search, or leave blank for all of time.</small>
+        <small id="interval-hint">Eon ▸ era ▸ period ▸ epoch ▸ age. Click ▸ to drill in, or type to search.</small>
+      </label>
+
+      <label class="fld">
+        <span>Formation</span>
+        <input id="f-formation" type="text" placeholder="e.g. Morrison, Hell Creek" autocomplete="off" />
+        <small>Restrict to a named geological formation.</small>
       </label>
 
       <details class="adv">

@@ -48,12 +48,26 @@ const globe = Globe()(document.getElementById("globe"))
   .backgroundImageUrl(`${ASSET}/night-sky.png`)
   .pointLat("plat")
   .pointLng("plng")
-  .pointColor((d) => d.color)
-  .pointAltitude(0.01)
-  .pointRadius((d) => d._r || 0.22)
+  .pointColor((d) => d === hoveredPoint ? "#ffffff" : d.color)
+  .pointAltitude((d) => d === hoveredPoint ? 0.06 : 0.01)
+  .pointRadius((d) => (d._r || 0.22) * (d === hoveredPoint ? 2.2 : 1))
   .pointLabel(pointLabel)
   .onPointClick(openLocality)
+  .onPointHover(onPointHover)
   .pointsTransitionDuration(0);
+
+/* Highlight the marker under the cursor (it grows, lifts and turns white) on top
+ * of the existing tooltip, and show a pointer cursor. */
+let hoveredPoint = null;
+function onPointHover(pt) {
+  if (pt === hoveredPoint) return;
+  hoveredPoint = pt;
+  document.body.style.cursor = pt ? "pointer" : "";
+  // Re-trigger the accessors so the highlighted point redraws.
+  globe.pointColor(globe.pointColor())
+    .pointAltitude(globe.pointAltitude())
+    .pointRadius(globe.pointRadius());
+}
 
 globe.controls().autoRotate = true;
 globe.controls().autoRotateSpeed = 0.35;
@@ -184,6 +198,29 @@ const LEVELS = ["eon", "era", "period", "epoch", "age"];
 let INTERVALS = PERIODS.map((p) => // sensible offline default
   ({ name: p.name, type: "period", max: p.max, min: p.min, color: p.color }));
 let selectedInterval = "";
+let intervalRoots = [];           // top of the timescale tree (the eons)
+const expandedInts = new Set();   // ids of expanded tree nodes
+
+/* Wire each interval to its parent so the picker can show a drill-down tree
+ * (eon ▸ era ▸ period ▸ epoch ▸ age). */
+function buildIntervalTree() {
+  const byId = new Map(INTERVALS.filter((it) => it.id != null).map((it) => [it.id, it]));
+  INTERVALS.forEach((it) => (it.children = []));
+  intervalRoots = [];
+  for (const it of INTERVALS) {
+    const parent = it.parent != null ? byId.get(it.parent) : null;
+    if (parent) parent.children.push(it);
+    else intervalRoots.push(it);
+  }
+  // Youngest-first within each parent, matching the legend's top-down reading.
+  const bySort = (a, b) => a.min - b.min || a.max - b.max;
+  intervalRoots.sort(bySort);
+  INTERVALS.forEach((it) => it.children.sort(bySort));
+  // Open down to period level by default so the common picks are visible.
+  expandedInts.clear();
+  INTERVALS.forEach((it) => { if (it.type === "eon" || it.type === "era") expandedInts.add(it.id); });
+}
+buildIntervalTree();
 
 const fmtMa = (v) => v == null ? "?" :
   +v === 0 ? "0" :
@@ -200,8 +237,9 @@ async function loadTimescale() {
     if (!recs.length) return;
     INTERVALS = recs
       .filter((r) => LEVELS.includes(r.type))
-      .map((r) => ({ name: r.interval_name, type: r.type,
-        max: +r.b_age, min: +r.t_age, color: r.color || "#9a8aa0" }));
+      .map((r) => ({ id: r.interval_no, parent: r.parent_no, name: r.interval_name,
+        type: r.type, max: +r.b_age, min: +r.t_age, color: r.color || "#9a8aa0" }));
+    buildIntervalTree();
     // Colour points and the legend from every period now available, so anything
     // back to the Hadean gets its proper ICS colour instead of falling to grey.
     const periods = INTERVALS.filter((it) => it.type === "period");
@@ -240,6 +278,24 @@ function intGrouped(list) {
   }).join("");
 }
 
+/* Recursive tree rows for browsing the timescale by drilling down branches. */
+function intTreeHtml(nodes, depth) {
+  return nodes.map((n) => {
+    const has = n.children && n.children.length;
+    const open = expandedInts.has(n.id);
+    const tw = has
+      ? `<span class="tw" data-tog="${esc(n.id)}">${open ? "▾" : "▸"}</span>`
+      : `<span class="tw none"></span>`;
+    let html = `<div class="opt tnode" data-val="${esc(n.name)}" style="padding-left:${6 + depth * 14}px">
+      ${tw}<span class="swatch" style="background:${n.color}"></span>
+      <span class="nm">${esc(n.name)}</span>
+      <span class="ct">${fmtMa(n.max)}–${fmtMa(n.min)}</span>
+      <span class="lvl">${esc(n.type)}</span></div>`;
+    if (has && open) html += intTreeHtml(n.children, depth + 1);
+    return html;
+  }).join("");
+}
+
 function intSync() {
   intItems = [...intBox.querySelectorAll(".opt")].map((el) => el.dataset.val);
   intActive = -1;
@@ -249,15 +305,18 @@ function intHide() { intBox.classList.add("hidden"); intActive = -1; }
 
 function intRender(q) {
   const ql = q.trim().toLowerCase();
-  let list = INTERVALS;
-  if (ql) list = INTERVALS.filter((it) => it.name.toLowerCase().includes(ql));
-  else list = INTERVALS.filter((it) => it.type === "era" || it.type === "period"); // quick picks
-  // A persistent "all of time" reset at the very top of the unfiltered list.
-  const anyRow = ql ? "" :
-    `<div class="opt" data-val=""><span class="nm">Any time</span>
-       <span class="lvl">all ages</span></div>`;
-  intBox.innerHTML = anyRow + (list.length ? intGrouped(list)
-    : `<div class="grp">No interval matches “${esc(q)}”</div>`);
+  // A persistent "all of time" reset at the very top.
+  const anyRow = `<div class="opt" data-val=""><span class="tw none"></span>
+     <span class="nm">Any time</span><span class="lvl">all ages</span></div>`;
+  if (ql) {
+    // Typing flattens to a grouped, filtered list so search stays fast.
+    const list = INTERVALS.filter((it) => it.name.toLowerCase().includes(ql));
+    intBox.innerHTML = list.length ? intGrouped(list)
+      : `<div class="grp">No interval matches “${esc(q)}”</div>`;
+  } else {
+    // Empty → the full drill-down tree.
+    intBox.innerHTML = anyRow + intTreeHtml(intervalRoots, 0);
+  }
   intSync();
   intShow();
 }
@@ -299,6 +358,16 @@ intInput.addEventListener("keydown", (e) => {
   else if (e.key === "Escape") { intHide(); }
 });
 intBox.addEventListener("mousedown", (e) => {
+  const tog = e.target.closest(".tw[data-tog]");
+  if (tog) { // expand/collapse a branch without selecting it or closing the box
+    e.preventDefault();
+    const id = tog.dataset.tog;
+    expandedInts.has(id) ? expandedInts.delete(id) : expandedInts.add(id);
+    const scroll = intBox.scrollTop;
+    intRender("");
+    intBox.scrollTop = scroll;
+    return;
+  }
   const opt = e.target.closest(".opt");
   if (opt) { e.preventDefault(); pickInterval(opt.dataset.val); }
 });
@@ -327,6 +396,8 @@ let currentTaxon = ""; // remembered so locality detail can float matches to the
 
 async function search() {
   const taxon = $("f-taxon").value.trim();
+  const exclude = $("f-exclude").value.trim();
+  const formation = $("f-formation").value.trim();
   const maxma = $("f-maxma").value.trim();
   const minma = $("f-minma").value.trim();
   const env = $("f-env").value;
@@ -350,7 +421,13 @@ async function search() {
   const params = new URLSearchParams();
   params.set("show", "loc,time,paleoloc");
   params.set("limit", limit);
-  if (taxon) params.set("base_name", taxon);
+  // base_name carries both the included taxon and any excluded sub-groups,
+  // using PBDB's "^" exclusion syntax (e.g. Dinosauria^Aves = dinosaurs sans birds).
+  if (taxon) {
+    const ex = exclude.split(",").map((s) => s.trim()).filter(Boolean).map((s) => "^" + s).join("");
+    params.set("base_name", taxon + ex);
+  }
+  if (formation) params.set("formation", formation);
 
   // Convert the custom range to Ma based on the chosen units (Ma / ka / years),
   // so "the last few thousand years" is just as easy as "the Jurassic".
@@ -743,12 +820,55 @@ function syncAcItems() {
 function showSuggest() { suggestBox.classList.remove("hidden"); }
 function hideSuggest() { suggestBox.classList.add("hidden"); acActive = -1; }
 
-function showPopular() {
-  suggestBox.innerHTML = POPULAR.map((g) =>
-    `<div class="grp">${esc(g.group)}</div>` + g.items.map((n) => optRow(n)).join("")
+/* ---- lazy taxon tree: curated roots, children fetched from PBDB on demand --- */
+const taxRoots = POPULAR.map((g) => ({
+  group: g.group,
+  nodes: g.items.map((name) => ({ name, children: null, expanded: false, loading: false })),
+}));
+let taxIndex = []; // rebuilt each render: maps a row's data-tk to its node
+
+function taxNodeHtml(node, depth) {
+  const key = taxIndex.push(node) - 1;
+  const has = node.children && node.children.length;
+  const tw = node.loading ? `<span class="tw">⋯</span>`
+    : (node.children === null || has) ? `<span class="tw" data-tk="${key}">${node.expanded && has ? "▾" : "▸"}</span>`
+    : `<span class="tw none"></span>`;
+  const meta = node.noc != null ? `<span class="ct">${(+node.noc).toLocaleString()}</span>` : "";
+  const rank = node.rnk ? `<span class="rk">${esc(node.rnk)}</span>` : "";
+  let html = `<div class="opt tnode" data-val="${esc(node.name)}" style="padding-left:${6 + depth * 14}px">
+    ${tw}<span class="nm">${esc(node.name)}</span>${rank}${meta}</div>`;
+  if (node.expanded && has) html += node.children.map((c) => taxNodeHtml(c, depth + 1)).join("");
+  return html;
+}
+
+function showPopular() { // now renders the browsable tree
+  taxIndex = [];
+  suggestBox.innerHTML = taxRoots.map((g) =>
+    `<div class="grp">${esc(g.group)}</div>` + g.nodes.map((n) => taxNodeHtml(n, 0)).join("")
   ).join("");
   syncAcItems();
   showSuggest();
+}
+
+async function expandTaxonNode(node) {
+  if (node.loading) return;
+  if (node.children !== null) { node.expanded = !node.expanded; showPopular(); return; }
+  node.loading = true;
+  const scroll = suggestBox.scrollTop; showPopular(); suggestBox.scrollTop = scroll;
+  try {
+    const sel = node.oid ? `id=${String(node.oid).replace(/\D/g, "")}`
+                         : `name=${encodeURIComponent(node.name)}`;
+    const recs = await fetch(`${PBDB}/taxa/list.json?${sel}&rel=children&status=accepted&show=size`)
+      .then((r) => r.json()).then((d) => d.records || []);
+    node.children = recs
+      .map((r) => ({ name: r.nam, oid: r.oid, rnk: RANK[+r.rnk] || "",
+        noc: +r.noc || 0, children: null, expanded: false, loading: false }))
+      .filter((c) => c.noc > 0)            // only groups that actually have fossils
+      .sort((a, b) => b.noc - a.noc)       // most-collected first
+      .slice(0, 60);
+  } catch (e) { node.children = []; }
+  node.loading = false; node.expanded = true;
+  const s2 = suggestBox.scrollTop; showPopular(); suggestBox.scrollTop = s2;
 }
 
 let acReq = 0;
@@ -809,6 +929,8 @@ taxonInput.addEventListener("keydown", (e) => {
   else if (e.key === "Escape") { hideSuggest(); }
 });
 suggestBox.addEventListener("mousedown", (e) => {
+  const tog = e.target.closest(".tw[data-tk]");
+  if (tog) { e.preventDefault(); expandTaxonNode(taxIndex[+tog.dataset.tk]); return; }
   const opt = e.target.closest(".opt");
   if (opt) { e.preventDefault(); pickSuggestion(opt.dataset.val); }
 });
@@ -819,9 +941,11 @@ document.addEventListener("mousedown", (e) => {
 /* ----------------------------------------------------------------- Wire up --- */
 $("search-form").addEventListener("submit", (e) => { e.preventDefault(); hideSuggest(); search(); });
 $("btn-clear").addEventListener("click", () => {
-  $("f-taxon").value = ""; $("f-interval").value = ""; selectedInterval = "";
+  $("f-taxon").value = ""; $("f-exclude").value = ""; $("f-formation").value = "";
+  $("f-interval").value = ""; selectedInterval = "";
   $("f-maxma").value = ""; $("f-minma").value = ""; $("f-env").value = "";
   $("f-view").checked = false; intHint();
+  $("btn-download").disabled = true;
   globe.pointsData([]); setStatus("");
 });
 $("btn-download").addEventListener("click", downloadResults);

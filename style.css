@@ -83,6 +83,17 @@ a { color: var(--accent); }
 .suggest .opt .rk { font-size: 11px; color: var(--muted); }
 .suggest .opt .ct { margin-left: auto; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
+/* Tree rows in the interval / taxon pickers */
+.suggest .tnode { align-items: center; }
+.suggest .tw {
+  flex: 0 0 16px; width: 16px; text-align: center; color: var(--muted);
+  font-size: 10px; cursor: pointer; user-select: none; border-radius: 4px;
+}
+.suggest .tw:hover { background: #2a3548; color: var(--text); }
+.suggest .tw.none { cursor: default; }
+.suggest .tnode .ct { margin-left: auto; }
+.suggest .tnode .rk { font-size: 10px; }
+
 .row { display: flex; gap: 10px; align-items: flex-end; }
 .fld.half { flex: 1; }
 .fld.unit { flex: 0 0 96px; }
