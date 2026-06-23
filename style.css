@@ -322,6 +322,22 @@ button:hover { filter: brightness(1.08); }
 .legend li.on { background: #16263a; box-shadow: inset 3px 0 0 var(--accent); }
 .legend li.on { font-weight: 600; }
 
+/* ===== "Set the time machine to this range" icon ===== */
+.tm-set {
+  background: transparent; border: 1px solid var(--border); color: var(--accent-2);
+  border-radius: 6px; font-size: 10px; line-height: 1; padding: 2px 5px; margin-left: 6px;
+  cursor: pointer; opacity: 0; transition: opacity 0.1s; vertical-align: middle;
+}
+.legend li:hover .tm-set, .chip .tm-set { opacity: 1; }
+.chip .tm-set { margin-left: 6px; padding: 1px 5px; }
+.tm-set:hover { background: var(--accent-2); color: #04121c; border-color: var(--accent-2); filter: none; }
+
+/* ===== Density legend ===== */
+.density-legend.hidden { display: none; }
+.density-legend .dl-bar { height: 12px; border-radius: 4px; margin: 2px 0 5px; border: 1px solid var(--border); }
+.density-legend .dl-scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.dl-note { display: block; color: var(--muted); font-size: 11px; margin-top: 5px; line-height: 1.3; }
+
 @media (max-width: 640px) {
   /* Panel becomes a bottom sheet that slides up over the globe. */
   #panel {
@@ -349,8 +365,9 @@ button:hover { filter: brightness(1.08); }
   #panel-close { display: block; top: 14px; }
   .panel-head h1 { font-size: 24px; }
 
-  /* No hover on touch — keep the select button visible */
+  /* No hover on touch — keep the select / time-set buttons visible */
   .suggest .pick { opacity: 1; }
+  .tm-set { opacity: 1; }
 
   /* Bigger touch targets */
   .fld input[type="text"], .fld input[type="number"], .fld select { padding: 11px 12px; }

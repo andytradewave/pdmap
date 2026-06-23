@@ -163,6 +163,7 @@ function updateSpin(alt) {
 function onCameraChange(alt) {
   applyPointSize(alt);
   updateSpin(alt);
+  if (densityOn()) scheduleDensity(); // refine clusters / resize markers as you zoom
 }
 globe.onZoom((pov) => onCameraChange(pov.altitude));
 // Belt-and-braces: the controls' own change event fires on every zoom/drag,
@@ -192,6 +193,12 @@ const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const fmtAge = (e, l) => (e == null ? "" : `${(+e).toFixed(1)}–${(+l).toFixed(1)} Ma`);
 
+/* A little ⏳ button placed next to any displayed age range, to point the time
+ * machine straight at that span (set in the wiring section, below). */
+const tmIcon = (max, min) =>
+  `<button type="button" class="tm-set" data-max="${max}" data-min="${min}"
+     title="Set the time machine to ${fmtMa(max)}–${fmtMa(min)} Ma">⏳</button>`;
+
 function setStatus(msg, cls = "") {
   const el = $("status");
   el.textContent = msg;
@@ -214,7 +221,7 @@ function buildLegend() {
     li.title = "Click to isolate this period on the globe";
     if (p.name === legendSel) li.classList.add("on");
     li.innerHTML = `<span class="swatch" style="background:${bandColor(p)}"></span>
-      ${esc(p.name)}<span class="age">${fmtMa(p.max)}–${fmtMa(p.min)}</span>`;
+      ${esc(p.name)}<span class="age">${fmtMa(p.max)}–${fmtMa(p.min)}</span>${tmIcon(p.max, p.min)}`;
     ul.appendChild(li);
   }
 }
@@ -691,35 +698,88 @@ globe.polygonGeoJsonGeometry((d) => d.geometry)
   .polygonStrokeColor(() => "#2b3220")
   .polygonsTransitionDuration(0);
 
-/* Density (hexbin) layer — aggregates localities into hexagons so fossil-rich
- * regions and sampling hot-spots stand out when zoomed out. Weighted by the
- * number of occurrences at each locality. */
-globe.hexBinPointLat((d) => d.plat)
-  .hexBinPointLng((d) => d.plng)
-  .hexBinPointWeight((d) => Math.max(1, +d.noc || 1))
-  .hexBinResolution(3)
-  .hexBinMerge(false)
-  .hexAltitude((h) => 0.005 + Math.min(0.5, h.sumWeight / 4000))
-  .hexTopColor((h) => densityColor(h.points.length))
-  .hexSideColor((h) => densityColor(h.points.length))
-  .hexLabel((h) => `<div style="background:#0c1018;border:1px solid #283244;border-radius:8px;
-      padding:6px 9px;font-size:12px;color:#e6ebf2;">
-      <b>${h.points.length.toLocaleString()} localities</b><br/>
-      <span style="color:#8a97aa">${Math.round(h.sumWeight).toLocaleString()} occurrences here</span></div>`)
-  .hexTransitionDuration(0);
-
+/* Density layer — aggregates localities into a lat/lng grid and draws each cell
+ * as a sized, *numbered* marker, so you can read how many sites cluster where
+ * (and click a cluster to zoom into it). The grid refines as you zoom in, and
+ * the individual localities return once you're close enough. */
 const DENSITY_STOPS = ["#2c7bb6", "#abd9e9", "#ffffbf", "#fdae61", "#d7191c"]; // CVD-safe diverging
-const densityColor = (n) => lerpStops(DENSITY_STOPS, Math.log10(Math.max(1, n)) / 2.7);
+const densityColor = (n) => lerpStops(DENSITY_STOPS, Math.log10(Math.max(1, n)) / 3);
+const DENSITY_CAP = 250;        // most clusters to label at once (keeps it readable)
+let densityAlt = DEFAULT_ALT, densityMax = 1;
+
+const densityOn = () => $("f-density").checked;
+const densityCellDeg = (alt) => alt > 2 ? 12 : alt > 1.2 ? 8 : alt > 0.7 ? 5 : 3;
+const fmtCount = (n) => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k" : String(n);
+
+/* Aggregate the plotted localities into grid cells, by their current (modern or
+ * paleo) coordinates, returning one weighted marker per populated cell. */
+function gridBin(recs, cellDeg) {
+  const cells = new Map();
+  for (const r of recs) {
+    if (r.plat == null || r.plng == null) continue;
+    const gy = Math.floor((+r.plat + 90) / cellDeg), gx = Math.floor((+r.plng + 180) / cellDeg);
+    const key = gx + ":" + gy;
+    let c = cells.get(key);
+    if (!c) { c = { n: 0, occ: 0, slat: 0, slng: 0 }; cells.set(key, c); }
+    c.n++; c.occ += (+r.noc || 0); c.slat += +r.plat; c.slng += +r.plng;
+  }
+  return [...cells.values()].map((c) => ({ lat: c.slat / c.n, lng: c.slng / c.n, count: c.n, occ: c.occ }));
+}
+
+globe.labelLat((d) => d.lat).labelLng((d) => d.lng)
+  .labelText((d) => fmtCount(d.count))
+  .labelColor((d) => densityColor(d.count))
+  .labelDotRadius((d) => radiusForAltitude(densityAlt) * (1.1 + Math.log10(d.count + 1) * 1.5))
+  .labelSize((d) => radiusForAltitude(densityAlt) * (2.6 + Math.log10(d.count + 1) * 1.1))
+  .labelResolution(2)
+  .labelAltitude(0.013)
+  .labelLabel((d) => `<div style="background:#0c1018;border:1px solid #283244;border-radius:8px;
+      padding:6px 9px;font-size:12px;color:#e6ebf2;">
+      <b>${d.count.toLocaleString()} localities</b><br/>
+      <span style="color:#8a97aa">${Math.round(d.occ).toLocaleString()} occurrences · click to zoom in</span></div>`)
+  .onLabelClick((d) => {
+    globe.controls().autoRotate = false;
+    globe.pointOfView({ lat: d.lat, lng: d.lng, altitude: Math.max(0.35, densityAlt * 0.45) }, 900);
+  })
+  .labelsTransitionDuration(0);
+
+function renderDensity() {
+  densityAlt = globe.pointOfView().altitude;
+  let bins = gridBin(currentRecs, densityCellDeg(densityAlt));
+  bins.sort((a, b) => b.count - a.count);
+  densityMax = bins.length ? bins[0].count : 1;
+  const trimmed = bins.length > DENSITY_CAP;
+  if (trimmed) bins = bins.slice(0, DENSITY_CAP);
+  globe.labelsData(bins);
+  buildDensityLegend(trimmed);
+}
+let densityTimer = null;
+function scheduleDensity() {
+  clearTimeout(densityTimer);
+  densityTimer = setTimeout(() => { if (densityOn()) renderDensity(); }, 140);
+}
+
+function buildDensityLegend(trimmed) {
+  const el = $("density-legend");
+  el.innerHTML = `<h3>Cluster size (localities)</h3>
+    <div class="dl-bar" style="background:linear-gradient(90deg,${DENSITY_STOPS.join(",")})"></div>
+    <div class="dl-scale"><span>1</span><span>${densityMax.toLocaleString()}</span></div>
+    ${trimmed ? `<small class="dl-note">Showing the densest ${DENSITY_CAP} clusters.</small>` : ""}
+    <small class="dl-note">Click a cluster to zoom in; zoom in to split clusters apart.</small>`;
+}
 
 /* Switch between the per-locality point layer and the aggregated density layer. */
 function applyLayerMode() {
-  const density = $("f-density").checked;
-  if (density) {
+  if (densityOn()) {
     globe.pointsData([]);
-    globe.hexBinPointsData(currentRecs);
+    renderDensity();
+    $("density-legend").classList.remove("hidden");
+    $("geo-legend").classList.add("hidden");
   } else {
-    globe.hexBinPointsData([]);
+    globe.labelsData([]);
     globe.pointsData(currentRecs);
+    $("density-legend").classList.add("hidden");
+    $("geo-legend").classList.remove("hidden");
   }
 }
 
@@ -815,7 +875,7 @@ async function openLocality(d) {
     <div class="chips">
       <span class="chip age" style="border-color:${d.color};color:${d.color}">
         ${esc(d.oei || "")}${d.oli && d.oli !== d.oei ? "–" + esc(d.oli) : ""}</span>
-      <span class="chip">${fmtAge(d.eag, d.lag)}</span>
+      <span class="chip">${fmtAge(d.eag, d.lag)}${d.eag != null ? tmIcon(+d.eag, +d.lag) : ""}</span>
     </div>
     <div class="meta">
       ${d.sfm ? `<b>Formation:</b> ${esc(d.sfm)}<br/>` : ""}
@@ -1499,6 +1559,31 @@ tmRange.addEventListener("input", () => { if (tmPlaying) tmStop(); tmOnInput(); 
 tmBand.addEventListener("change", tmUpdateLabel);
 tmUpdateLabel();
 
+/* Point the time machine at a specific age span (from a ⏳ icon next to any
+ * displayed date range): set the custom range, move the slider, and re-search. */
+function applyTimeRange(maxMa, minMa) {
+  if (tmPlaying) tmStop();
+  $("f-unit").value = "Ma";
+  $("f-maxma").value = maxMa;
+  $("f-minma").value = minMa;
+  selectedInterval = ""; $("f-interval").value = ""; $("f-interval").title = "";
+  tmRange.value = Math.min(+tmRange.max, Math.max(0, Math.round((maxMa + minMa) / 2)));
+  // Snap the window selector to the nearest preset for a tidy follow-on ▶ sweep.
+  const half = (maxMa - minMa) / 2;
+  const presets = [...tmBand.options].map((o) => +o.value);
+  tmBand.value = String(presets.reduce((a, b) => Math.abs(b - half) < Math.abs(a - half) ? b : a));
+  tmUpdateLabel(); intHint();
+  flash(`⏳ Time set to ${fmtMa(maxMa)}–${fmtMa(minMa)} Ma`);
+  search();
+}
+/* One delegated handler for every ⏳ icon, wherever a date range is shown. */
+document.addEventListener("click", (e) => {
+  const b = e.target.closest(".tm-set");
+  if (!b) return;
+  e.preventDefault(); e.stopPropagation();
+  applyTimeRange(+b.dataset.max, +b.dataset.min);
+});
+
 /* =========================================================================
  * Fly-to place search (OpenStreetMap / Nominatim).
  * ========================================================================= */
@@ -1550,6 +1635,7 @@ buildSamples();
  * Remaining wiring — interactive legend, colour & density toggles, buttons.
  * ========================================================================= */
 $("legend-list").addEventListener("click", (e) => {
+  if (e.target.closest(".tm-set")) return; // the ⏳ icon has its own handler
   const li = e.target.closest("[data-period]");
   if (li) setLegendFilter(li.dataset.period);
 });
