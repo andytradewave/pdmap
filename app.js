@@ -29,9 +29,33 @@ const PERIODS = [
  * Phanerozoic periods and is replaced with the full set (incl. all Precambrian
  * periods) once the live timescale loads. */
 let BANDS = PERIODS;
+const bandFor = (ma) => BANDS.find((p) => ma <= p.max && ma > p.min);
+
+/* Colour-blind-safe option. When on, the ICS period colours (which aren't CVD
+ * friendly) are swapped for a perceptually-uniform viridis ramp ordered young →
+ * old, so age still reads as a smooth gradient for every kind of colour vision. */
+let cbSafe = false;
+let cbMap = new Map();
+const CB_STOPS = ["#fde725", "#5ec962", "#21918c", "#3b528b", "#440154"]; // viridis
+const hex2rgb = (h) => { h = h.replace("#", ""); return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)); };
+function lerpStops(stops, t) {
+  t = Math.max(0, Math.min(1, t));
+  const seg = (stops.length - 1) * t, i = Math.floor(seg), f = seg - i;
+  const a = hex2rgb(stops[i]), b = hex2rgb(stops[Math.min(i + 1, stops.length - 1)]);
+  const c = a.map((v, k) => Math.round(v + (b[k] - v) * f));
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
+function buildCbMap() {
+  cbMap = new Map();
+  const bands = [...BANDS].sort((a, b) => a.min - b.min); // youngest → oldest
+  const n = bands.length;
+  bands.forEach((b, i) => cbMap.set(b.name, lerpStops(CB_STOPS, n > 1 ? i / (n - 1) : 0)));
+}
+const bandColor = (b) => cbSafe ? (cbMap.get(b.name) || b.color) : b.color;
+
 const colorForAge = (ma) => {
-  const p = BANDS.find((p) => ma <= p.max && ma > p.min);
-  return p ? p.color : "#9a8aa0";
+  const p = bandFor(ma);
+  return p ? bandColor(p) : (cbSafe ? "#777" : "#9a8aa0");
 };
 
 /* ----------------------------------------------------------------- Globe --- */
@@ -48,7 +72,7 @@ const globe = Globe()(document.getElementById("globe"))
   .backgroundImageUrl(`${ASSET}/night-sky.png`)
   .pointLat("plat")
   .pointLng("plng")
-  .pointColor((d) => d === hoveredPoint ? "#ffffff" : d.color)
+  .pointColor((d) => d === hoveredPoint ? "#ffffff" : pointPaint(d))
   .pointAltitude(0.01)
   .pointRadius((d) => d._r || 0.22)
   .pointLabel(pointLabel)
@@ -180,15 +204,35 @@ const saveSet = (key, set) => { try { localStorage.setItem(key, JSON.stringify([
 
 /* -------------------------------------------------------- Build controls --- */
 function buildLegend() {
+  buildCbMap();
   const ul = $("legend-list");
   ul.innerHTML = "";
   // Youngest at the top, like a stratigraphic column read from the surface down.
   for (const p of [...BANDS].sort((a, b) => a.min - b.min)) {
     const li = document.createElement("li");
-    li.innerHTML = `<span class="swatch" style="background:${p.color}"></span>
+    li.dataset.period = p.name;
+    li.title = "Click to isolate this period on the globe";
+    if (p.name === legendSel) li.classList.add("on");
+    li.innerHTML = `<span class="swatch" style="background:${bandColor(p)}"></span>
       ${esc(p.name)}<span class="age">${fmtMa(p.max)}–${fmtMa(p.min)}</span>`;
     ul.appendChild(li);
   }
+}
+
+/* Interactive legend: clicking a period isolates points of that age on the globe
+ * (dimming the rest), without re-querying PBDB. Click again to clear. */
+let legendSel = null;
+function pointPaint(d) {
+  if (legendSel) {
+    const b = bandFor(+d.eag || 0);
+    if (!b || b.name !== legendSel) return "rgba(150,160,180,0.12)";
+  }
+  return d.color;
+}
+function setLegendFilter(name) {
+  legendSel = legendSel === name ? null : name;
+  buildLegend();
+  globe.pointColor(globe.pointColor()); // re-trigger the colour accessor
 }
 
 /* ----------------------------------------------- Geological timescale --- */
@@ -431,6 +475,7 @@ function currentViewBbox() {
 
 /* --------------------------------------------------------------- Search --- */
 let usePaleo = false;
+let currentRecs = []; // the localities currently plotted (for stats, export, layers)
 
 let currentTaxon = ""; // remembered so locality detail can float matches to the top
 
@@ -510,8 +555,11 @@ async function search() {
       r._r = curR;
     }
     applyCoords(recs);
-    globe.pointsData(recs);
+    currentRecs = recs;
+    applyLayerMode(); // points or density hexbins, per the toggle
     if (usePaleo) updatePaleoGlobe(); // refresh the reconstruction for the new age
+    renderStats(recs);
+    writeHash();
 
     const shown = recs.length;
     const noun = shown === 1 ? "locality" : "localities";
@@ -519,6 +567,7 @@ async function search() {
     setStatus(`${shown.toLocaleString()} ${noun}${capped}`, shown ? "" : "err");
     if (!shown) setStatus("No localities matched. Try a broader taxon or age.", "err");
     $("btn-download").disabled = !shown;
+    $("f-export").disabled = !shown;
   } catch (e) {
     setStatus("Error: " + e.message, "err");
   } finally {
@@ -526,12 +575,72 @@ async function search() {
   }
 }
 
-/* ------------------------------------------------------------- Download --- */
-/* Export whatever is currently plotted as CSV — opens straight into Excel /
- * Sheets, with both modern and paleo coordinates kept. */
-function downloadResults() {
-  const recs = globe.pointsData();
+/* ------------------------------------------------------------- Export --- */
+/* PBDB is CC-BY, so every export carries an attribution / citation line. */
+const PBDB_CITE = "Data: Paleobiology Database (paleobiodb.org), CC-BY. " +
+  "Continent reconstructions: GPlates / PALEOMAP (Scotese). Exported via PDMap.";
+
+function exportFilename(ext) {
+  return `pdmap-${(currentTaxon || "localities").replace(/\W+/g, "_").toLowerCase()}.${ext}`;
+}
+function saveBlob(text, type, name) {
+  const blob = new Blob([text], { type: `${type};charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/* Dispatch to the chosen export format. */
+function exportResults() {
+  const recs = currentRecs;
   if (!recs.length) return;
+  const fmt = $("f-export").value;
+  if (fmt === "geojson") return exportGeoJSON(recs);
+  if (fmt === "kml") return exportKML(recs);
+  return exportCSV(recs);
+}
+
+/* Both modern and paleo coordinates are kept in every format. */
+function exportGeoJSON(recs) {
+  const fc = {
+    type: "FeatureCollection",
+    metadata: { source: PBDB_CITE, query: currentTaxon || null, count: recs.length },
+    features: recs.map((r) => ({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [r._mlng, r._mlat] },
+      properties: {
+        collection_no: String(r.oid || "").replace(/\D/g, ""),
+        name: r.nam || "", early_interval: r.oei || "", late_interval: r.oli || r.oei || "",
+        max_ma: r.eag ?? null, min_ma: r.lag ?? null,
+        paleolat: r._plat ?? null, paleolng: r._plng ?? null,
+        formation: r.sfm || "", country: r.cc2 || "", occurrences: r.noc ?? null,
+      },
+    })),
+  };
+  saveBlob(JSON.stringify(fc, null, 2), "application/geo+json", exportFilename("geojson"));
+}
+
+function exportKML(recs) {
+  const x = (s) => esc(s);
+  const placemarks = recs.map((r) => `    <Placemark>
+      <name>${x(r.nam || "Unnamed locality")}</name>
+      <description>${x([r.oei, fmtAge(r.eag, r.lag), r.sfm, countryName(r.cc2),
+        (r.noc != null ? r.noc + " occurrences" : "")].filter(Boolean).join(" · "))}</description>
+      <Point><coordinates>${r._mlng},${r._mlat},0</coordinates></Point>
+    </Placemark>`).join("\n");
+  const kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2"><Document>
+    <name>PDMap — ${x(currentTaxon || "fossil localities")}</name>
+    <description>${x(PBDB_CITE)}</description>
+${placemarks}
+  </Document></kml>`;
+  saveBlob(kml, "application/vnd.google-earth.kml+xml", exportFilename("kml"));
+}
+
+/* Opens straight into Excel / Sheets, with both modern and paleo coordinates. */
+function exportCSV(recs) {
   const cols = [
     ["collection_no", (r) => String(r.oid || "").replace(/\D/g, "")],
     ["name", (r) => r.nam || ""],
@@ -551,18 +660,9 @@ function downloadResults() {
     const s = String(v == null ? "" : v);
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   };
-  const rows = [cols.map((c) => c[0]).join(",")];
+  const rows = [`# ${PBDB_CITE}`, cols.map((c) => c[0]).join(",")];
   for (const r of recs) rows.push(cols.map((c) => cell(c[1](r))).join(","));
-
-  const blob = new Blob([rows.join("\n")], { type: "text/csv;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `pdmap-${(currentTaxon || "localities").replace(/\W+/g, "_").toLowerCase()}.csv`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  saveBlob(rows.join("\n"), "text/csv", exportFilename("csv"));
 }
 
 /* Switch the plotted coordinates between modern and paleo positions. */
@@ -590,6 +690,38 @@ globe.polygonGeoJsonGeometry((d) => d.geometry)
   .polygonSideColor(() => "rgba(60, 66, 48, 0.5)")
   .polygonStrokeColor(() => "#2b3220")
   .polygonsTransitionDuration(0);
+
+/* Density (hexbin) layer — aggregates localities into hexagons so fossil-rich
+ * regions and sampling hot-spots stand out when zoomed out. Weighted by the
+ * number of occurrences at each locality. */
+globe.hexBinPointLat((d) => d.plat)
+  .hexBinPointLng((d) => d.plng)
+  .hexBinPointWeight((d) => Math.max(1, +d.noc || 1))
+  .hexBinResolution(3)
+  .hexBinMerge(false)
+  .hexAltitude((h) => 0.005 + Math.min(0.5, h.sumWeight / 4000))
+  .hexTopColor((h) => densityColor(h.points.length))
+  .hexSideColor((h) => densityColor(h.points.length))
+  .hexLabel((h) => `<div style="background:#0c1018;border:1px solid #283244;border-radius:8px;
+      padding:6px 9px;font-size:12px;color:#e6ebf2;">
+      <b>${h.points.length.toLocaleString()} localities</b><br/>
+      <span style="color:#8a97aa">${Math.round(h.sumWeight).toLocaleString()} occurrences here</span></div>`)
+  .hexTransitionDuration(0);
+
+const DENSITY_STOPS = ["#2c7bb6", "#abd9e9", "#ffffbf", "#fdae61", "#d7191c"]; // CVD-safe diverging
+const densityColor = (n) => lerpStops(DENSITY_STOPS, Math.log10(Math.max(1, n)) / 2.7);
+
+/* Switch between the per-locality point layer and the aggregated density layer. */
+function applyLayerMode() {
+  const density = $("f-density").checked;
+  if (density) {
+    globe.pointsData([]);
+    globe.hexBinPointsData(currentRecs);
+  } else {
+    globe.hexBinPointsData([]);
+    globe.pointsData(currentRecs);
+  }
+}
 
 /* Age (Ma) to reconstruct to: midpoint of the custom range or selected interval,
  * else the median age of the plotted localities. */
@@ -667,10 +799,12 @@ async function updatePaleoGlobe() {
 }
 
 /* -------------------------------------------------- Locality detail view --- */
+let openToken = 0;
 async function openLocality(d) {
   const panel = $("detail");
   const body = $("detail-body");
   panel.classList.remove("hidden");
+  const myToken = ++openToken;
 
   const collNo = String(d.oid || "").replace(/\D/g, "");
   const place = [d.stp, countryName(d.cc2)].filter(Boolean).join(", ");
@@ -695,8 +829,11 @@ async function openLocality(d) {
       <a class="chip" target="_blank" rel="noopener"
          href="${PBDB}/colls/single.json?id=${d.oid}&show=loc,time,strat,refs">📄 PBDB record</a>
     </div>
+    <div id="macro-context" class="macro"></div>
     <div class="taxa-head"><h3>Fossils found here</h3><span class="count" id="taxa-count"></span></div>
     <div id="taxa-list"><div class="loading-row">Loading taxa…</div></div>`;
+
+  fetchMacro(d, myToken); // bedrock / formation context from Macrostrat (best-effort)
 
   try {
     // Fetch every taxon here, and (if a taxon was searched) the subset that
@@ -713,6 +850,35 @@ async function openLocality(d) {
     renderTaxa(allJson.records || [], relevant);
   } catch (e) {
     $("taxa-list").innerHTML = `<div class="loading-row">Could not load taxa: ${esc(e.message)}</div>`;
+  }
+}
+
+/* Macrostrat geological context — the bedrock map unit(s) at the locality, with
+ * lithology and stratigraphic name. CORS-enabled, no key; best-effort only. */
+const MACRO = "https://macrostrat.org/api/v2/geologic_units/map";
+async function fetchMacro(d, token) {
+  const box = $("macro-context");
+  if (!box) return;
+  box.innerHTML = `<div class="macro-head">Bedrock context</div><div class="loading-row">Looking up geology…</div>`;
+  try {
+    const res = await fetch(`${MACRO}?lat=${d._mlat}&lng=${d._mlng}`);
+    const data = (await res.json())?.success?.data || [];
+    if (token !== openToken) return; // a newer locality was opened
+    if (!data.length) { box.innerHTML = ""; return; }
+    const u = data[0]; // most-specific unit Macrostrat returns first
+    const lith = (u.lith || "").split(/[,;]/).slice(0, 3).map((s) => s.trim()).filter(Boolean).join(", ");
+    const span = [u.b_int, u.t_int].filter(Boolean);
+    const age = span.length ? (span[0] === span[1] ? span[0] : `${span[0]} – ${span[1]}`) : "";
+    const rows = [
+      u.strat_name && ["Unit", u.strat_name],
+      u.name && u.name !== u.strat_name && ["Map unit", u.name],
+      lith && ["Lithology", lith],
+      age && ["Age", age],
+    ].filter(Boolean);
+    box.innerHTML = `<div class="macro-head">Bedrock context <span class="macro-src">Macrostrat</span></div>
+      ${rows.map(([k, v]) => `<div class="macro-row"><b>${esc(k)}:</b> ${esc(v)}</div>`).join("")}`;
+  } catch (e) {
+    if (token === openToken && box) box.innerHTML = ""; // silent on failure
   }
 }
 
@@ -1104,20 +1270,25 @@ $("btn-clear").addEventListener("click", () => {
   $("f-interval").value = ""; selectedInterval = "";
   $("f-maxma").value = ""; $("f-minma").value = ""; $("f-env").value = "";
   $("f-view").checked = false; intHint();
-  $("btn-download").disabled = true;
-  globe.pointsData([]); setStatus("");
+  $("btn-download").disabled = true; $("f-export").disabled = true;
+  legendSel = null; buildLegend();
+  if (typeof tmStop === "function") tmStop();
+  currentRecs = [];
+  globe.pointsData([]); globe.hexBinPointsData([]);
+  setStatus("");
+  writeHash();
 });
-$("btn-download").addEventListener("click", downloadResults);
+$("btn-download").addEventListener("click", exportResults);
 $("detail-close").addEventListener("click", () => $("detail").classList.add("hidden"));
 $("panel-toggle").addEventListener("click", () => $("panel").classList.remove("collapsed"));
 $("panel-close").addEventListener("click", () => $("panel").classList.add("collapsed"));
 
 $("f-paleo").addEventListener("change", (e) => {
   usePaleo = e.target.checked;
-  const recs = globe.pointsData();
-  applyCoords(recs);
-  globe.pointsData([...recs]);
+  applyCoords(currentRecs);
+  applyLayerMode();
   updatePaleoGlobe();
+  writeHash();
 });
 $("f-spin").addEventListener("change", (e) => {
   spinWanted = e.target.checked;
@@ -1135,16 +1306,282 @@ $("f-base").addEventListener("change", (e) => { if (!usePaleo) setBaseLayer(e.ta
   setBaseLayer(mode);
 })();
 
-/* A friendly first search so the globe isn't empty on load. Load the live
+/* =========================================================================
+ * Shareable state — every filter (plus paleo / colour / density toggles) is
+ * captured in one object, used both for the URL permalink and saved searches.
+ * ========================================================================= */
+function getState() {
+  return {
+    taxon: $("f-taxon").value.trim(),
+    exclude: excludes.join("^"),
+    interval: selectedInterval,
+    maxma: $("f-maxma").value.trim(),
+    minma: $("f-minma").value.trim(),
+    unit: $("f-unit").value,
+    env: $("f-env").value,
+    formation: $("f-formation").value.trim(),
+    view: $("f-view").checked ? 1 : 0,
+    limit: $("f-limit").value,
+    paleo: usePaleo ? 1 : 0,
+    base: $("f-base").value,
+    cb: cbSafe ? 1 : 0,
+    density: $("f-density").checked ? 1 : 0,
+  };
+}
+function applyState(s) {
+  if (!s) return;
+  $("f-taxon").value = s.taxon || ""; currentTaxon = s.taxon || "";
+  excludes = s.exclude ? s.exclude.split("^").filter(Boolean) : [];
+  renderExcludeChips();
+  selectedInterval = s.interval || "";
+  $("f-interval").value = selectedInterval;
+  $("f-interval").title = selectedInterval ? intervalPath(selectedInterval) : "";
+  $("f-maxma").value = s.maxma || "";
+  $("f-minma").value = s.minma || "";
+  if (s.unit) $("f-unit").value = s.unit;
+  $("f-env").value = s.env || "";
+  $("f-formation").value = s.formation || "";
+  $("f-view").checked = !!+s.view;
+  if (s.limit) $("f-limit").value = s.limit;
+  usePaleo = !!+s.paleo; $("f-paleo").checked = usePaleo;
+  if (s.base) { $("f-base").value = s.base; if (!usePaleo) setBaseLayer(s.base); }
+  cbSafe = !!+s.cb; $("f-cb").checked = cbSafe;
+  $("f-density").checked = !!+s.density;
+  intHint();
+}
+function writeHash() {
+  const s = getState();
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(s)) {
+    if (v === "" || v === 0 || v == null) continue;
+    if (k === "unit" && v === "Ma") continue;       // default
+    if (k === "limit" && v === "2000") continue;    // default
+    p.set(k, v);
+  }
+  const q = p.toString();
+  history.replaceState(null, "", q ? "#" + q : location.pathname + location.search);
+}
+function readHash() {
+  const h = location.hash.replace(/^#/, "");
+  if (!h) return null;
+  const o = {};
+  for (const [k, v] of new URLSearchParams(h)) o[k] = v;
+  return Object.keys(o).length ? o : null;
+}
+async function copyLink() {
+  writeHash();
+  try { await navigator.clipboard.writeText(location.href); flash("🔗 Link copied to clipboard"); }
+  catch { prompt("Copy this link:", location.href); }
+}
+
+/* A brief status message that restores the previous one afterwards. */
+function flash(msg) {
+  const el = $("status"), prev = el.textContent, cls = el.className;
+  setStatus(msg, "busy");
+  setTimeout(() => { if (el.textContent === msg) { el.textContent = prev; el.className = cls; } }, 2200);
+}
+
+/* =========================================================================
+ * Diversity stats — a quick breakdown of the current result set.
+ * ========================================================================= */
+function renderStats(recs) {
+  const body = $("stats-body");
+  if (!recs.length) { body.innerHTML = `<p class="muted-note">No results to summarise.</p>`; return; }
+  const byBand = new Map(), byCountry = new Map(), byFm = new Map();
+  let totalOcc = 0;
+  for (const r of recs) {
+    const b = bandFor(+r.eag || 0);
+    const key = b ? b.name : "Unknown";
+    const e = byBand.get(key) || { colls: 0, occs: 0, color: b ? bandColor(b) : "#777", min: b ? b.min : 1e9 };
+    e.colls++; e.occs += (+r.noc || 0); byBand.set(key, e);
+    totalOcc += (+r.noc || 0);
+    if (r.cc2) byCountry.set(r.cc2, (byCountry.get(r.cc2) || 0) + 1);
+    if (r.sfm) byFm.set(r.sfm, (byFm.get(r.sfm) || 0) + 1);
+  }
+  const bands = [...byBand.entries()].sort((a, b) => a[1].min - b[1].min);
+  const maxC = Math.max(...bands.map(([, e]) => e.colls));
+  const barRows = bands.map(([name, e]) =>
+    `<div class="bar-row" title="${e.occs.toLocaleString()} occurrences">
+       <span class="bar-lbl">${esc(name)}</span>
+       <span class="bar-track"><span class="bar-fill" style="width:${Math.round(e.colls / maxC * 100)}%;background:${e.color}"></span></span>
+       <span class="bar-num">${e.colls.toLocaleString()}</span>
+     </div>`).join("");
+  const top = (m, fmt) => [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6)
+    .map(([k, v]) => `<span class="stat-chip">${esc(fmt ? fmt(k) : k)} <b>${v}</b></span>`).join("");
+  body.innerHTML = `
+    <div class="stat-top"><span><b>${recs.length.toLocaleString()}</b> localities</span>
+      <span><b>${totalOcc.toLocaleString()}</b> occurrences</span></div>
+    <div class="stat-sec">Localities by period</div>
+    <div class="bars">${barRows}</div>
+    <div class="stat-sec">Top countries</div>
+    <div class="stat-chips">${top(byCountry, countryName) || "—"}</div>
+    <div class="stat-sec">Top formations</div>
+    <div class="stat-chips">${top(byFm) || "—"}</div>`;
+}
+
+/* =========================================================================
+ * Saved searches — name and reload any filter combination (localStorage).
+ * ========================================================================= */
+const SAVED_KEY = "pdmap.saved";
+const loadSaved = () => { try { return JSON.parse(localStorage.getItem(SAVED_KEY) || "[]"); } catch (e) { return []; } };
+const storeSaved = (l) => { try { localStorage.setItem(SAVED_KEY, JSON.stringify(l)); } catch (e) { /* private mode */ } };
+function defaultSaveName() {
+  const s = getState();
+  const when = s.interval || (s.maxma ? `${s.maxma}–${s.minma || 0} ${s.unit}` : "all ages");
+  return `${s.taxon || "All taxa"} · ${when}`;
+}
+function saveSearch() {
+  const name = (prompt("Name this search:", defaultSaveName()) || "").trim();
+  if (!name) return;
+  const list = loadSaved().filter((x) => x.name !== name);
+  list.unshift({ name, state: getState() });
+  storeSaved(list.slice(0, 30));
+  renderSaved();
+  $("saved-wrap").open = true;
+  flash("★ Saved");
+}
+function renderSaved() {
+  const list = loadSaved();
+  $("saved-wrap").classList.toggle("hidden", !list.length);
+  $("saved-list").innerHTML = list.map((it, i) =>
+    `<div class="saved-row">
+       <button type="button" class="saved-load" data-load="${i}" title="Load this search">${esc(it.name)}</button>
+       <button type="button" class="saved-del" data-del="${i}" title="Delete">×</button>
+     </div>`).join("");
+}
+$("saved-list").addEventListener("click", (e) => {
+  const load = e.target.closest("[data-load]"), del = e.target.closest("[data-del]");
+  const list = loadSaved();
+  if (del) { list.splice(+del.dataset.del, 1); storeSaved(list); renderSaved(); return; }
+  if (load) { applyState(list[+load.dataset.load].state); buildLegend(); updatePaleoGlobe(); search(); }
+});
+
+/* =========================================================================
+ * Time machine — sweep through deep time; the continents follow in paleo mode.
+ * ========================================================================= */
+const tmRange = $("tm-range"), tmBand = $("tm-band"), tmLabel = $("tm-label"), tmPlay = $("tm-play");
+let tmPlaying = false, tmToken = 0, tmTimer = null;
+const tmAge = () => +tmRange.value;
+function tmUpdateLabel() {
+  const b = bandFor(tmAge());
+  tmLabel.textContent = `${tmAge()} Ma${b ? " · " + b.name : ""}`;
+}
+async function tmApply() {
+  const age = tmAge(), half = +tmBand.value;
+  $("f-unit").value = "Ma";
+  $("f-maxma").value = Math.round(age + half);
+  $("f-minma").value = Math.max(0, Math.round(age - half));
+  selectedInterval = ""; $("f-interval").value = ""; intHint();
+  tmUpdateLabel();
+  await search();
+}
+function tmOnInput() {
+  tmUpdateLabel();
+  clearTimeout(tmTimer);
+  tmTimer = setTimeout(tmApply, 250); // debounce while dragging
+}
+function tmStop() { tmPlaying = false; tmToken++; tmPlay.textContent = "▶"; tmPlay.classList.remove("on"); }
+async function tmPlayLoop() {
+  const my = ++tmToken;
+  tmPlaying = true; tmPlay.textContent = "⏸"; tmPlay.classList.add("on");
+  if (!usePaleo) { usePaleo = true; $("f-paleo").checked = true; } // watch continents move
+  if (tmAge() < 20) tmRange.value = tmRange.max;                   // start from the deep past
+  while (tmPlaying && my === tmToken && tmAge() > 0) {
+    await tmApply();
+    if (my !== tmToken) return;
+    tmRange.value = Math.max(0, tmAge() - +tmBand.value);
+    await new Promise((r) => setTimeout(r, 450));
+  }
+  if (my === tmToken) { await tmApply(); tmStop(); }
+}
+tmPlay.addEventListener("click", () => (tmPlaying ? tmStop() : tmPlayLoop()));
+tmRange.addEventListener("input", () => { if (tmPlaying) tmStop(); tmOnInput(); });
+tmBand.addEventListener("change", tmUpdateLabel);
+tmUpdateLabel();
+
+/* =========================================================================
+ * Fly-to place search (OpenStreetMap / Nominatim).
+ * ========================================================================= */
+$("f-place").addEventListener("keydown", async (e) => {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  const q = $("f-place").value.trim();
+  if (!q) return;
+  flash(`Finding “${q}”…`);
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`,
+      { headers: { "Accept-Language": "en" } });
+    const hit = (await res.json())[0];
+    if (!hit) { flash(`No place found for “${q}”.`); return; }
+    globe.controls().autoRotate = false;
+    globe.pointOfView({ lat: +hit.lat, lng: +hit.lon, altitude: 1.1 }, 1200);
+    flash(`📍 ${(hit.display_name || q).split(",").slice(0, 2).join(",")}`);
+  } catch (err) { flash("Place search failed — try again."); }
+});
+
+/* =========================================================================
+ * One-click sample queries (onboarding).
+ * ========================================================================= */
+const BLANK = { taxon: "", exclude: "", interval: "", maxma: "", minma: "", unit: "Ma",
+  env: "", formation: "", view: 0 };
+const SAMPLES = [
+  { label: "🦖 T. rex", state: { taxon: "Tyrannosaurus", interval: "Cretaceous" } },
+  { label: "🦣 Ice-age mammals", state: { taxon: "Mammalia", maxma: "2.5", minma: "0", unit: "Ma" } },
+  { label: "🐚 Jurassic ammonites", state: { taxon: "Ammonoidea", interval: "Jurassic" } },
+  { label: "🪼 Cambrian life", state: { interval: "Cambrian" } },
+  { label: "🌿 Ediacaran biota", state: { interval: "Ediacaran" } },
+  { label: "🪲 Trilobites", state: { taxon: "Trilobita" } },
+];
+function buildSamples() {
+  $("samples").innerHTML = SAMPLES.map((s, i) =>
+    `<button type="button" class="sample" data-s="${i}">${esc(s.label)}</button>`).join("");
+}
+$("samples").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-s]"); if (!b) return;
+  const s = SAMPLES[+b.dataset.s];
+  applyState({ ...BLANK, limit: $("f-limit").value, paleo: usePaleo ? 1 : 0,
+    base: $("f-base").value, cb: cbSafe ? 1 : 0, density: $("f-density").checked ? 1 : 0, ...s.state });
+  if ($("f-taxon").value) taxonLineage($("f-taxon").value).then((p) => { taxonInput.title = p || ""; });
+  search();
+});
+buildSamples();
+
+/* =========================================================================
+ * Remaining wiring — interactive legend, colour & density toggles, buttons.
+ * ========================================================================= */
+$("legend-list").addEventListener("click", (e) => {
+  const li = e.target.closest("[data-period]");
+  if (li) setLegendFilter(li.dataset.period);
+});
+$("f-cb").addEventListener("change", (e) => {
+  cbSafe = e.target.checked;
+  buildLegend(); recolorPoints();
+  writeHash();
+});
+$("f-density").addEventListener("change", () => { applyLayerMode(); writeHash(); });
+$("btn-save").addEventListener("click", saveSearch);
+$("btn-link").addEventListener("click", copyLink);
+renderSaved();
+
+/* A friendly first search so the globe isn't empty on load — unless the URL
+ * carries a shared query, in which case we restore that exactly. Load the live
  * timescale first so the interval picker is fully populated from the start. */
 (async function init() {
   await loadTimescale();
-  $("f-taxon").value = "Dinosauria";
-  taxonLineage("Dinosauria").then((p) => { taxonInput.title = p || "Dinosauria"; });
-  selectedInterval = "Cretaceous";
-  intInput.value = "Cretaceous";
-  intInput.title = intervalPath("Cretaceous");
-  intHint();
+  const hash = readHash();
+  if (hash) {
+    applyState(hash);
+    buildLegend();
+    taxonLineage($("f-taxon").value).then((p) => { taxonInput.title = p || ""; });
+  } else {
+    $("f-taxon").value = "Dinosauria"; currentTaxon = "Dinosauria";
+    taxonLineage("Dinosauria").then((p) => { taxonInput.title = p || "Dinosauria"; });
+    selectedInterval = "Cretaceous";
+    intInput.value = "Cretaceous";
+    intInput.title = intervalPath("Cretaceous");
+    intHint();
+  }
+  if (usePaleo) updatePaleoGlobe();
   search();
 })();
 

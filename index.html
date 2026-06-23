@@ -29,6 +29,7 @@
     <header class="panel-head">
       <h1>PDMap <span>🦕</span></h1>
       <p class="sub">Fossil localities from the <a href="https://paleobiodb.org/" target="_blank" rel="noopener">Paleobiology Database</a></p>
+      <div id="samples" class="samples"></div>
     </header>
 
     <form id="search-form" class="filters">
@@ -110,12 +111,49 @@
 
       <div class="btns">
         <button type="submit" id="btn-search">Search</button>
-        <button type="button" id="btn-download" class="ghost" disabled>⬇ Download</button>
+        <button type="button" id="btn-save" class="ghost" title="Save this search">★ Save</button>
         <button type="button" id="btn-clear" class="ghost">Clear</button>
+      </div>
+      <div class="btns export-row">
+        <button type="button" id="btn-download" class="ghost" disabled>⬇ Export</button>
+        <select id="f-export" title="Export format" disabled>
+          <option value="csv">CSV</option>
+          <option value="geojson">GeoJSON</option>
+          <option value="kml">KML (Google Earth)</option>
+        </select>
+        <button type="button" id="btn-link" class="ghost" title="Copy a shareable link to this exact view">🔗 Link</button>
       </div>
     </form>
 
     <div id="status" class="status"></div>
+
+    <details id="saved-wrap" class="adv saved hidden">
+      <summary>★ Saved searches</summary>
+      <div id="saved-list" class="saved-list"></div>
+    </details>
+
+    <div id="timemachine" class="timemachine">
+      <div class="tm-head">
+        <span>⏳ Time machine</span>
+        <button type="button" id="tm-play" title="Sweep through deep time">▶</button>
+      </div>
+      <input id="tm-range" type="range" min="0" max="750" step="1" value="100" />
+      <div class="tm-foot">
+        <span id="tm-label" class="tm-label">— Ma</span>
+        <select id="tm-band" title="Time window width">
+          <option value="5">± 5 Ma</option>
+          <option value="10" selected>± 10 Ma</option>
+          <option value="25">± 25 Ma</option>
+          <option value="50">± 50 Ma</option>
+        </select>
+      </div>
+      <small>Drag through deep time, or press ▶ to sweep. Tick “ancient Earth” to watch the continents move with it.</small>
+    </div>
+
+    <details id="stats-wrap" class="stats adv">
+      <summary>📊 Diversity of these results</summary>
+      <div id="stats-body" class="stats-body"><p class="muted-note">Run a search to see a breakdown by period, country and formation.</p></div>
+    </details>
 
     <div class="legend">
       <h3>Geological time</h3>
@@ -123,6 +161,11 @@
     </div>
 
     <footer class="panel-foot">
+      <label class="fld">
+        <span>Jump to place</span>
+        <input id="f-place" type="text" placeholder="e.g. Mongolia, Hell Creek, London…" autocomplete="off" />
+        <small>Fly the globe to a place (OpenStreetMap search). Press Enter.</small>
+      </label>
       <label class="fld">
         <span>Map style</span>
         <select id="f-base">
@@ -134,6 +177,8 @@
       <label class="fld chk"><input id="f-paleo" type="checkbox" /><span>Show on ancient Earth (paleo-coordinates)</span></label>
       <small id="paleo-note" class="paleo-note hidden"></small>
       <label class="fld chk"><input id="f-spin" type="checkbox" checked /><span>Auto-rotate globe</span></label>
+      <label class="fld chk"><input id="f-density" type="checkbox" /><span>Density view (cluster hot-spots)</span></label>
+      <label class="fld chk"><input id="f-cb" type="checkbox" /><span>Colour-blind-safe ages</span></label>
     </footer>
   </aside>
 

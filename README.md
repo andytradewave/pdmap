@@ -9,9 +9,36 @@ to see the fossils found there, each with a Phylopic silhouette and external lin
 to Wikipedia, fossil photos, life reconstructions, and the PBDB taxon page.
 
 You can also flip the whole map onto the **ancient Earth** using PBDB
-paleo-coordinates, to see roughly where each site sat when the rock was laid down.
+paleo-coordinates, with the continents reconstructed at the relevant age, to see
+where each site sat when the rock was laid down — and use the **time machine** to
+sweep through deep time and watch the continents (and the fossils on them) move.
 
 ![globe](docs/preview.png)
+
+## Features
+
+- **Filters** — taxon (with a tree-of-life picker + live autocomplete), exclude
+  sub-groups, geological interval (full ICS tree), custom age range (Ma / ka / yr),
+  named formation, depositional environment, and the current viewport.
+- **Time machine** — a deep-time slider with a ▶ play button that sweeps the age
+  window through geological time; in ancient-Earth mode the continents drift with it.
+- **Ancient Earth** — true paleogeographic continents from GPlates (PALEOMAP),
+  with fossils plotted on their paleo-coordinates.
+- **Diversity panel** — a live breakdown of the current results by period, country
+  and formation, plus total localities and occurrences.
+- **Density view** — aggregates localities into weighted hexbins so fossil-rich
+  regions and sampling hot-spots stand out when zoomed out.
+- **Interactive legend** — click a period to isolate points of that age.
+- **Bedrock context** — clicking a locality looks up the rock unit and lithology
+  at that spot from [Macrostrat](https://macrostrat.org/).
+- **Jump to place** — fly the globe to any named place (OpenStreetMap search).
+- **Shareable permalinks** — the full query (filters + toggles) lives in the URL;
+  copy a link to reproduce any view exactly.
+- **Saved searches** — name and reload any filter combination (stored locally).
+- **Export** — download the plotted localities as **CSV**, **GeoJSON** or **KML**
+  (opens in Google Earth / QGIS), each carrying the PBDB CC-BY citation.
+- **Accessibility** — a colour-blind-safe (viridis) age palette toggle, and a
+  mobile bottom-sheet layout for phones.
 
 ## How it works
 
@@ -130,17 +157,16 @@ were given; the code here is already PWA-ready.
 | [Paleobiology Database](https://paleobiodb.org/) | Fossil localities & occurrences | CC-BY |
 | [PhyloPic](https://www.phylopic.org/) (via PBDB) | Taxon silhouettes | Public domain / CC |
 | [Wikipedia REST API](https://en.wikipedia.org/api/rest_v1/) | Real photos + descriptions per taxon | CC-BY-SA |
+| [GPlates Web Service](https://gws.gplates.org/) | Reconstructed coastlines (PALEOMAP) for ancient-Earth view | CC-BY |
+| [Macrostrat](https://macrostrat.org/) | Bedrock map unit + lithology at a clicked locality | CC-BY |
+| [Nominatim / OpenStreetMap](https://nominatim.openstreetmap.org/) | "Jump to place" geocoding | ODbL |
 
-All three are public, CORS-enabled, and need no API key.
+All of these are public, CORS-enabled, and need no API key.
 
-**Other open datasets that could be layered in later** (all have public APIs):
+**Other open datasets that could still be layered in later** (all have public APIs):
 
 - **[GBIF](https://www.gbif.org/)** — hundreds of millions of occurrence records,
   including fossils and the modern relatives of extinct groups, often with photos.
-- **[Macrostrat](https://macrostrat.org/)** — geological map units, rock columns and
-  lithology; could show the bedrock/formation context of a clicked locality.
-- **[GPlates / paleogeographic maps](https://gplates.org/)** — true reconstructed
-  basemaps, to replace the modern texture in the ancient-Earth view.
 - **[Encyclopedia of Life](https://eol.org/)** — additional imagery and trait data.
 
 ## Notes & limitations
@@ -148,7 +174,11 @@ All three are public, CORS-enabled, and need no API key.
 - The "only current view" box is an approximation derived from the camera position,
   not a precise selection rectangle.
 - On the ancient-Earth (paleo) view, points are placed at their paleo-coordinates
-  but the underlying texture is still the modern Earth — treat it as an indication
-  of latitude/longitude at the time, not a true paleogeographic map.
+  and the continents are reconstructed from GPlates (PALEOMAP) coastlines for the
+  chosen age. Reconstructions are model estimates, and only the largest landmasses
+  are drawn (tiny islets are dropped for performance), so treat it as a close
+  approximation rather than an exact map. Reconstructions span 0–750 Ma.
+- Bedrock context comes from Macrostrat, whose coverage is strongest in North
+  America; many localities elsewhere will show no rock-unit details.
 - Silhouettes come from [PhyloPic](https://www.phylopic.org/) via PBDB and aren't
   available for every taxon; a 🦴 placeholder is shown when missing.
