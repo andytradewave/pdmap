@@ -739,7 +739,10 @@ globe.labelLat((d) => d.lat).labelLng((d) => d.lng)
       <span style="color:#8a97aa">${Math.round(d.occ).toLocaleString()} occurrences · click to zoom in</span></div>`)
   .onLabelClick((d) => {
     globe.controls().autoRotate = false;
-    globe.pointOfView({ lat: d.lat, lng: d.lng, altitude: Math.max(0.35, densityAlt * 0.45) }, 900);
+    // Always zoom IN from wherever we are now (never snap back out), down to a
+    // close-but-safe floor — by then the cluster has split into smaller ones.
+    const alt = globe.pointOfView().altitude;
+    globe.pointOfView({ lat: d.lat, lng: d.lng, altitude: Math.max(0.05, alt * 0.45) }, 900);
   })
   .labelsTransitionDuration(0);
 
@@ -849,7 +852,8 @@ async function updatePaleoGlobe() {
   if (myToken !== paleoToken) return; // a newer request superseded this one
   if (feats) {
     globe.polygonsData(feats);
-    note.textContent = `Ancient Earth ~${fmtMa(clamped)} Ma · ${feats.length} landmasses (GPlates ${PALEO_MODEL}).`;
+    note.textContent = `Ancient Earth ~${fmtMa(clamped)} Ma · ${feats.length} landmasses (GPlates ${PALEO_MODEL}). `
+      + `Coastlines are reconstructed plate positions of modern shorelines, not past sea levels — flooded shelves (e.g. Doggerland) and inland seas aren't shown.`;
   } else {
     globe.polygonsData([]);
     note.textContent = age > PALEO_MAX_MA

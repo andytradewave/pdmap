@@ -178,6 +178,14 @@ All of these are public, CORS-enabled, and need no API key.
   chosen age. Reconstructions are model estimates, and only the largest landmasses
   are drawn (tiny islets are dropped for performance), so treat it as a close
   approximation rather than an exact map. Reconstructions span 0–750 Ma.
+- **The paleo view does not model past sea levels.** The coastlines are
+  reconstructed *plate positions of modern shorelines*, so eustatic sea-level
+  change, epicontinental/inland seas, and glacial lowstands are not represented —
+  e.g. Doggerland (the land bridge between Britain and Europe exposed ~10 ka by
+  low sea level) won't appear. Ages are also rounded to whole millions of years,
+  so anything younger than ~0.5 Ma renders on essentially modern coastlines.
+  Modelling true paleoshorelines would need a paleogeographic/paleo-DEM dataset
+  (e.g. Scotese's paleogeographic maps) rather than the coastline service.
 - Bedrock context comes from Macrostrat, whose coverage is strongest in North
   America; many localities elsewhere will show no rock-unit details.
 - Silhouettes come from [PhyloPic](https://www.phylopic.org/) via PBDB and aren't
