@@ -22,8 +22,11 @@ sweep through deep time and watch the continents (and the fossils on them) move.
   named formation, depositional environment, and the current viewport.
 - **Time machine** — a deep-time slider with a ▶ play button that sweeps the age
   window through geological time; in ancient-Earth mode the continents drift with it.
-- **Ancient Earth** — true paleogeographic continents from GPlates (PALEOMAP),
-  with fossils plotted on their paleo-coordinates.
+- **Ancient Earth** — real paleogeography draped on the globe: for 0–540 Ma a
+  Scotese & Wright (2018) PaleoDEM texture shows land, mountains and the shallow
+  shelf seas that flooded the continents (so sea level is shown, not just
+  coastlines); older ages fall back to GPlates (PALEOMAP) reconstructed
+  coastlines. Fossils are plotted on their paleo-coordinates throughout.
 - **Diversity panel** — a live breakdown of the current results by period, country
   and formation, plus total localities and occurrences.
 - **Density view** — aggregates localities into weighted hexbins so fossil-rich
@@ -157,7 +160,8 @@ were given; the code here is already PWA-ready.
 | [Paleobiology Database](https://paleobiodb.org/) | Fossil localities & occurrences | CC-BY |
 | [PhyloPic](https://www.phylopic.org/) (via PBDB) | Taxon silhouettes | Public domain / CC |
 | [Wikipedia REST API](https://en.wikipedia.org/api/rest_v1/) | Real photos + descriptions per taxon | CC-BY-SA |
-| [GPlates Web Service](https://gws.gplates.org/) | Reconstructed coastlines (PALEOMAP) for ancient-Earth view | CC-BY |
+| [GPlates Web Service](https://gws.gplates.org/) | Reconstructed coastlines (PALEOMAP) for ancient-Earth view beyond 540 Ma | CC-BY |
+| [Scotese & Wright (2018) PaleoDEM](https://doi.org/10.5281/zenodo.5460860) | Paleogeography textures (land/shelf-sea/ocean) for 0–540 Ma, vendored | CC-BY-4.0 |
 | [Macrostrat](https://macrostrat.org/) | Bedrock map unit + lithology at a clicked locality | CC-BY |
 | [Nominatim / OpenStreetMap](https://nominatim.openstreetmap.org/) | "Jump to place" geocoding | ODbL |
 
@@ -178,14 +182,14 @@ All of these are public, CORS-enabled, and need no API key.
   chosen age. Reconstructions are model estimates, and only the largest landmasses
   are drawn (tiny islets are dropped for performance), so treat it as a close
   approximation rather than an exact map. Reconstructions span 0–750 Ma.
-- **The paleo view does not model past sea levels.** The coastlines are
-  reconstructed *plate positions of modern shorelines*, so eustatic sea-level
-  change, epicontinental/inland seas, and glacial lowstands are not represented —
-  e.g. Doggerland (the land bridge between Britain and Europe exposed ~10 ka by
-  low sea level) won't appear. Ages are also rounded to whole millions of years,
-  so anything younger than ~0.5 Ma renders on essentially modern coastlines.
-  Modelling true paleoshorelines would need a paleogeographic/paleo-DEM dataset
-  (e.g. Scotese's paleogeographic maps) rather than the coastline service.
+- **Past sea levels (0–540 Ma)** are shown from the Scotese & Wright PaleoDEM:
+  shallow shelf seas and flooded continental interiors (e.g. the Cretaceous
+  Western Interior Seaway) appear as light-blue, mountains as brown/white. The
+  PaleoDEM is a 1° model sampled every 5 Myr, so it's a regional-scale estimate,
+  not a precise shoreline — very recent, fine features like Doggerland (~10 ka)
+  fall within the youngest (0 Ma ≈ modern) slice. **Beyond 540 Ma** there's no
+  sea-level model, so the view falls back to GPlates reconstructed coastlines
+  (plate positions of modern shorelines) with no flooding shown.
 - Bedrock context comes from Macrostrat, whose coverage is strongest in North
   America; many localities elsewhere will show no rock-unit details.
 - Silhouettes come from [PhyloPic](https://www.phylopic.org/) via PBDB and aren't

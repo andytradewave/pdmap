@@ -684,6 +684,15 @@ function applyCoords(recs) {
 /* With paleo-coordinates on, replace the modern globe with a reconstruction of
  * the continents at the relevant age, drawn from GPlates' coastline service so
  * the fossils sit on the world as it actually was. */
+/* For 0–540 Ma we drape a real paleogeographic texture from the Scotese & Wright
+ * (2018) PaleoDEM — land, mountains and, crucially, the shallow shelf seas that
+ * flooded the continents, so sea level is shown rather than just coastlines.
+ * Beyond that coverage we fall back to GPlates' reconstructed coastlines. */
+const PALEO_DEM = "vendor/paleodem";
+const PALEO_DEM_MAX = 540;        // covers 0–540 Ma at 5-Myr steps
+const pad3 = (n) => String(n).padStart(3, "0");
+const nearestDemAge = (age) => Math.min(PALEO_DEM_MAX, Math.max(0, Math.round(age / 5) * 5));
+
 const GPLATES = "https://gws.gplates.org/reconstruct/coastlines/";
 // Scotese PALEOMAP — the same model PBDB uses for its paleo-coordinates
 // (pgm=scotese), so fossils sit on their true coastlines. Spans 0–750 Ma.
@@ -831,29 +840,48 @@ function fetchPaleoCoastlines(age) {
 }
 
 let paleoToken = 0;
+// Tint the globe surface, tolerating the brief window after a texture swap when
+// the material (or its colour) hasn't been recreated yet.
+function setGlobeColor(hex) {
+  const m = globe.globeMaterial();
+  if (m && m.color) m.color.set(hex);
+}
 async function updatePaleoGlobe() {
   const note = $("paleo-note");
   if (!usePaleo) {
     globe.polygonsData([]);
-    globe.globeMaterial().color.set(0xffffff); // stop tinting the restored texture
+    setGlobeColor(0xffffff); // stop tinting the restored texture
     setBaseLayer($("f-base").value);
     note.classList.add("hidden");
     return;
   }
   const myToken = ++paleoToken;
   const age = paleoAgeMa();
-  const clamped = Math.min(PALEO_MAX_MA, Math.max(0, age));
-  // Turn the surface into a plain ocean and drop the modern imagery.
-  globe.globeTileEngineUrl(null).globeImageUrl(null).bumpImageUrl(null);
-  globe.globeMaterial().color.set(0x12354f);
   note.classList.remove("hidden");
+
+  // 0–540 Ma: drape the PaleoDEM paleogeography texture (shows shelf seas).
+  if (age <= PALEO_DEM_MAX) {
+    const a = nearestDemAge(age);
+    globe.polygonsData([]);
+    globe.globeTileEngineUrl(null).bumpImageUrl(null);
+    globe.globeImageUrl(`${PALEO_DEM}/${pad3(a)}.jpg`);
+    setGlobeColor(0xffffff); // the texture supplies the colour
+    note.textContent = `Ancient Earth ~${fmtMa(a)} Ma · paleogeography with shallow shelf seas & flooded `
+      + `continents (Scotese & Wright 2018 PaleoDEM, CC-BY).`;
+    return;
+  }
+
+  // Older than the PaleoDEM: reconstructed coastlines only (no sea-level model).
+  const clamped = Math.min(PALEO_MAX_MA, age);
+  globe.globeTileEngineUrl(null).globeImageUrl(null).bumpImageUrl(null);
+  setGlobeColor(0x12354f);
   note.textContent = `Reconstructing continents ~${fmtMa(clamped)} Ma…`;
   const feats = await fetchPaleoCoastlines(clamped);
   if (myToken !== paleoToken) return; // a newer request superseded this one
   if (feats) {
     globe.polygonsData(feats);
     note.textContent = `Ancient Earth ~${fmtMa(clamped)} Ma · ${feats.length} landmasses (GPlates ${PALEO_MODEL}). `
-      + `Coastlines are reconstructed plate positions of modern shorelines, not past sea levels — flooded shelves (e.g. Doggerland) and inland seas aren't shown.`;
+      + `Coastlines only — the sea-level (PaleoDEM) model doesn't reach beyond ${PALEO_DEM_MAX} Ma.`;
   } else {
     globe.polygonsData([]);
     note.textContent = age > PALEO_MAX_MA
