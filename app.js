@@ -717,6 +717,7 @@ const DENSITY_CAP = 250;        // most clusters to label at once (keeps it read
 let densityAlt = DEFAULT_ALT, densityMax = 1;
 
 const densityOn = () => $("f-density").checked;
+const DENSITY_POINTS_ALT = 0.6; // zoom in past this and clusters revert to pins
 const densityCellDeg = (alt) => alt > 2 ? 12 : alt > 1.2 ? 8 : alt > 0.7 ? 5 : 3;
 const fmtCount = (n) => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k" : String(n);
 
@@ -756,8 +757,22 @@ globe.labelLat((d) => d.lat).labelLng((d) => d.lng)
   .labelsTransitionDuration(0);
 
 function renderDensity() {
-  densityAlt = globe.pointOfView().altitude;
-  let bins = gridBin(currentRecs, densityCellDeg(densityAlt));
+  const alt = globe.pointOfView().altitude;
+  densityAlt = alt;
+  if (alt <= DENSITY_POINTS_ALT) {
+    // Zoomed in close — drop the clusters and show the individual localities,
+    // colour-coded by age (so the geological-time legend applies again).
+    globe.labelsData([]);
+    globe.pointsData(currentRecs);
+    applyPointSize(alt);
+    $("density-legend").classList.add("hidden");
+    $("geo-legend").classList.remove("hidden");
+    return;
+  }
+  globe.pointsData([]);
+  $("geo-legend").classList.add("hidden");
+  $("density-legend").classList.remove("hidden");
+  let bins = gridBin(currentRecs, densityCellDeg(alt));
   bins.sort((a, b) => b.count - a.count);
   densityMax = bins.length ? bins[0].count : 1;
   const trimmed = bins.length > DENSITY_CAP;
@@ -783,10 +798,7 @@ function buildDensityLegend(trimmed) {
 /* Switch between the per-locality point layer and the aggregated density layer. */
 function applyLayerMode() {
   if (densityOn()) {
-    globe.pointsData([]);
-    renderDensity();
-    $("density-legend").classList.remove("hidden");
-    $("geo-legend").classList.add("hidden");
+    renderDensity(); // chooses clusters vs pins by zoom, and toggles the legends
   } else {
     globe.labelsData([]);
     globe.pointsData(currentRecs);
@@ -863,9 +875,19 @@ async function updatePaleoGlobe() {
   if (age <= PALEO_DEM_MAX) {
     const a = nearestDemAge(age);
     globe.polygonsData([]);
+    if (a === 0) {
+      // The youngest slice is essentially today's geography — use the crisp
+      // high-resolution base map instead of the soft 1° PaleoDEM (e.g. for the
+      // Quaternary), which is both sharper and accurate for ~0 Ma.
+      setGlobeColor(0xffffff);
+      setBaseLayer($("f-base").value);
+      note.textContent = `Ancient Earth ~0 Ma · essentially modern geography (high-resolution base map).`;
+      return;
+    }
     globe.globeTileEngineUrl(null).bumpImageUrl(null);
     globe.globeImageUrl(`${PALEO_DEM}/${pad3(a)}.jpg`);
-    setGlobeColor(0xffffff); // the texture supplies the colour
+    setGlobeColor(0xffffff);     // the texture supplies the colour
+    _aniTries = 0; tryAnisotropy(); // sharpen the draped texture (max anisotropy)
     note.textContent = `Ancient Earth ~${fmtMa(a)} Ma · paleogeography with shallow shelf seas & flooded `
       + `continents (Scotese & Wright 2018 PaleoDEM, CC-BY).`;
     return;
