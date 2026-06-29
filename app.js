@@ -1803,7 +1803,7 @@ function renderStats(recs) {
 /* Fly the globe to the centroid of the localities matching a predicate (used by
  * the clickable country / formation chips). A spherical mean keeps groups that
  * straddle the antimeridian honest, and the spread sets a sensible zoom. */
-function flyToGroup(pred, label) {
+function flyToGroup(pred, label, tight) {
   const pts = currentRecs.filter(pred);
   if (!pts.length) { flash(`No mapped localities for ${label}.`); return; }
   const D = Math.PI / 180;
@@ -1821,7 +1821,11 @@ function flyToGroup(pred, label) {
     spread = Math.max(spread, Math.hypot((r.plat - lat), (r.plng - lng) *
       Math.cos(lat * D)));
   }
-  const alt = Math.min(2.2, Math.max(0.25, spread / 35 + 0.3));
+  // A formation pins down a much smaller area than a whole country, so zoom in
+  // tighter (lower floor + scale) when the caller asks for it.
+  const alt = tight
+    ? Math.min(2.2, Math.max(0.08, spread / 50 + 0.1))
+    : Math.min(2.2, Math.max(0.25, spread / 35 + 0.3));
   globe.controls().autoRotate = false;
   globe.pointOfView({ lat, lng, altitude: alt }, 1200);
   flash(`📍 ${label} — ${pts.length} ${pts.length === 1 ? "locality" : "localities"}`);
@@ -1830,7 +1834,7 @@ $("stats-body").addEventListener("click", (e) => {
   const cc = e.target.closest("[data-fly-cc]");
   if (cc) { flyToGroup((r) => (r.cc2 || "") === cc.dataset.flyCc, countryName(cc.dataset.flyCc)); return; }
   const fm = e.target.closest("[data-fly-fm]");
-  if (fm) flyToGroup((r) => (r.sfm || "") === fm.dataset.flyFm, fm.dataset.flyFm);
+  if (fm) flyToGroup((r) => (r.sfm || "") === fm.dataset.flyFm, fm.dataset.flyFm, true);
 });
 
 /* =========================================================================

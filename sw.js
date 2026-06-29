@@ -3,7 +3,7 @@
  * Live data (PBDB, Wikipedia) is cross-origin and is never cached — it always
  * goes to the network, so the fossil records and photos stay current. */
 
-const CACHE = "pdmap-shell-v19";
+const CACHE = "pdmap-shell-v20";
 
 const SHELL = [
   "./",
