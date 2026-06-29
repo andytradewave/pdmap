@@ -313,7 +313,8 @@ button:hover { filter: brightness(1.08); }
 .bar-fill { display: block; height: 100%; border-radius: 3px; min-width: 2px; }
 .bar-num { flex: 0 0 auto; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 34px; text-align: right; }
 .stat-chips { display: flex; flex-wrap: wrap; gap: 5px; }
-.stat-chip { font-size: 11px; background: #0c1018; border: 1px solid var(--border); border-radius: 999px; padding: 3px 9px; color: var(--muted); }
+.stat-chip { font-size: 11px; background: #0c1018; border: 1px solid var(--border); border-radius: 999px; padding: 3px 9px; color: var(--muted); cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
+.stat-chip:hover { background: #141b27; border-color: var(--accent, #4ea1ff); color: var(--text); }
 .stat-chip b { color: var(--text); }
 
 /* ===== Interactive legend ===== */

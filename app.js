@@ -413,6 +413,12 @@ function pickInterval(name) {
   selectedInterval = name;
   intInput.value = name;
   intInput.title = name ? intervalPath(name) : ""; // full-path tooltip
+  // The time machine (and the custom range) write into f-maxma/f-minma, which
+  // override any interval in search(). Picking an interval is an explicit choice
+  // to use it, so clear that range — otherwise the period stays stuck on whatever
+  // the time machine last set. Also halt any running sweep.
+  $("f-maxma").value = ""; $("f-minma").value = "";
+  if (typeof tmStop === "function") tmStop();
   intHide();
   intHint();
   search();
@@ -534,6 +540,9 @@ async function search() {
     params.set("interval", selectedInterval);
   }
   if (env) params.set("envtype", env);
+
+  const region = $("f-region").value;
+  if (region) params.set("cc", region); // continent or ISO-2 country code
 
   if ($("f-view").checked) {
     const b = currentViewBbox();
@@ -1101,13 +1110,86 @@ function taxonCard(o, isMatch = false) {
   </div>`;
 }
 
-/* Minimal ISO-3166 lookup for the common codes PBDB returns. */
-const COUNTRIES = { US: "USA", CA: "Canada", GB: "UK", AU: "Australia", CN: "China",
-  RU: "Russia", AR: "Argentina", DE: "Germany", FR: "France", ES: "Spain", IT: "Italy",
-  MX: "Mexico", BR: "Brazil", ZA: "South Africa", IN: "India", MN: "Mongolia",
-  MA: "Morocco", EG: "Egypt", PL: "Poland", SE: "Sweden", NO: "Norway", JP: "Japan",
-  NZ: "New Zealand", CL: "Chile", BO: "Bolivia", PE: "Peru", KZ: "Kazakhstan" };
+/* Full ISO-3166-1 alpha-2 lookup so every country code PBDB returns shows as a
+ * readable name (and doubles as the source for the Region filter's country list).
+ * A few are shortened to their everyday names (USA, UK) rather than the formal one. */
+const COUNTRIES = {
+  AF: "Afghanistan", AX: "Åland Islands", AL: "Albania", DZ: "Algeria", AS: "American Samoa",
+  AD: "Andorra", AO: "Angola", AI: "Anguilla", AQ: "Antarctica", AG: "Antigua & Barbuda",
+  AR: "Argentina", AM: "Armenia", AW: "Aruba", AU: "Australia", AT: "Austria", AZ: "Azerbaijan",
+  BS: "Bahamas", BH: "Bahrain", BD: "Bangladesh", BB: "Barbados", BY: "Belarus", BE: "Belgium",
+  BZ: "Belize", BJ: "Benin", BM: "Bermuda", BT: "Bhutan", BO: "Bolivia", BA: "Bosnia & Herzegovina",
+  BW: "Botswana", BV: "Bouvet Island", BR: "Brazil", IO: "British Indian Ocean Territory",
+  BN: "Brunei", BG: "Bulgaria", BF: "Burkina Faso", BI: "Burundi", CV: "Cabo Verde", KH: "Cambodia",
+  CM: "Cameroon", CA: "Canada", KY: "Cayman Islands", CF: "Central African Republic", TD: "Chad",
+  CL: "Chile", CN: "China", CX: "Christmas Island", CC: "Cocos (Keeling) Islands", CO: "Colombia",
+  KM: "Comoros", CG: "Congo", CD: "Congo (DRC)", CK: "Cook Islands", CR: "Costa Rica",
+  CI: "Côte d’Ivoire", HR: "Croatia", CU: "Cuba", CW: "Curaçao", CY: "Cyprus", CZ: "Czechia",
+  DK: "Denmark", DJ: "Djibouti", DM: "Dominica", DO: "Dominican Republic", EC: "Ecuador",
+  EG: "Egypt", SV: "El Salvador", GQ: "Equatorial Guinea", ER: "Eritrea", EE: "Estonia",
+  SZ: "Eswatini", ET: "Ethiopia", FK: "Falkland Islands", FO: "Faroe Islands", FJ: "Fiji",
+  FI: "Finland", FR: "France", GF: "French Guiana", PF: "French Polynesia",
+  TF: "French Southern Territories", GA: "Gabon", GM: "Gambia", GE: "Georgia", DE: "Germany",
+  GH: "Ghana", GI: "Gibraltar", GR: "Greece", GL: "Greenland", GD: "Grenada", GP: "Guadeloupe",
+  GU: "Guam", GT: "Guatemala", GG: "Guernsey", GN: "Guinea", GW: "Guinea-Bissau", GY: "Guyana",
+  HT: "Haiti", HM: "Heard & McDonald Islands", VA: "Vatican City", HN: "Honduras", HK: "Hong Kong",
+  HU: "Hungary", IS: "Iceland", IN: "India", ID: "Indonesia", IR: "Iran", IQ: "Iraq", IE: "Ireland",
+  IM: "Isle of Man", IL: "Israel", IT: "Italy", JM: "Jamaica", JP: "Japan", JE: "Jersey",
+  JO: "Jordan", KZ: "Kazakhstan", KE: "Kenya", KI: "Kiribati", KP: "North Korea", KR: "South Korea",
+  KW: "Kuwait", KG: "Kyrgyzstan", LA: "Laos", LV: "Latvia", LB: "Lebanon", LS: "Lesotho",
+  LR: "Liberia", LY: "Libya", LI: "Liechtenstein", LT: "Lithuania", LU: "Luxembourg", MO: "Macau",
+  MG: "Madagascar", MW: "Malawi", MY: "Malaysia", MV: "Maldives", ML: "Mali", MT: "Malta",
+  MH: "Marshall Islands", MQ: "Martinique", MR: "Mauritania", MU: "Mauritius", YT: "Mayotte",
+  MX: "Mexico", FM: "Micronesia", MD: "Moldova", MC: "Monaco", MN: "Mongolia", ME: "Montenegro",
+  MS: "Montserrat", MA: "Morocco", MZ: "Mozambique", MM: "Myanmar", NA: "Namibia", NR: "Nauru",
+  NP: "Nepal", NL: "Netherlands", NC: "New Caledonia", NZ: "New Zealand", NI: "Nicaragua",
+  NE: "Niger", NG: "Nigeria", NU: "Niue", NF: "Norfolk Island", MK: "North Macedonia",
+  MP: "Northern Mariana Islands", NO: "Norway", OM: "Oman", PK: "Pakistan", PW: "Palau",
+  PS: "Palestine", PA: "Panama", PG: "Papua New Guinea", PY: "Paraguay", PE: "Peru",
+  PH: "Philippines", PN: "Pitcairn Islands", PL: "Poland", PT: "Portugal", PR: "Puerto Rico",
+  QA: "Qatar", RE: "Réunion", RO: "Romania", RU: "Russia", RW: "Rwanda", BL: "St Barthélemy",
+  SH: "St Helena", KN: "St Kitts & Nevis", LC: "St Lucia", MF: "St Martin",
+  PM: "St Pierre & Miquelon", VC: "St Vincent & Grenadines", WS: "Samoa", SM: "San Marino",
+  ST: "São Tomé & Príncipe", SA: "Saudi Arabia", SN: "Senegal", RS: "Serbia", SC: "Seychelles",
+  SL: "Sierra Leone", SG: "Singapore", SX: "Sint Maarten", SK: "Slovakia", SI: "Slovenia",
+  SB: "Solomon Islands", SO: "Somalia", ZA: "South Africa", GS: "South Georgia",
+  SS: "South Sudan", ES: "Spain", LK: "Sri Lanka", SD: "Sudan", SR: "Suriname",
+  SJ: "Svalbard & Jan Mayen", SE: "Sweden", CH: "Switzerland", SY: "Syria", TW: "Taiwan",
+  TJ: "Tajikistan", TZ: "Tanzania", TH: "Thailand", TL: "Timor-Leste", TG: "Togo", TK: "Tokelau",
+  TO: "Tonga", TT: "Trinidad & Tobago", TN: "Tunisia", TR: "Türkiye", TM: "Turkmenistan",
+  TC: "Turks & Caicos Islands", TV: "Tuvalu", UG: "Uganda", UA: "Ukraine",
+  AE: "United Arab Emirates", GB: "UK", US: "USA", UM: "US Minor Outlying Islands",
+  UY: "Uruguay", UZ: "Uzbekistan", VU: "Vanuatu", VE: "Venezuela", VN: "Vietnam",
+  VG: "British Virgin Islands", VI: "US Virgin Islands", WF: "Wallis & Futuna",
+  EH: "Western Sahara", YE: "Yemen", ZM: "Zambia", ZW: "Zimbabwe" };
 const countryName = (cc) => COUNTRIES[cc] || cc || "";
+
+/* PBDB's own "continent" codes (config.json?show=continents) — used by the
+ * Region filter alongside the ISO-2 country codes above; both go to PBDB's cc param. */
+const PBDB_REGIONS = [
+  { code: "AFR", name: "Africa", group: "continent" },
+  { code: "ATA", name: "Antarctica", group: "continent" },
+  { code: "ASI", name: "Asia", group: "continent" },
+  { code: "AUS", name: "Australia", group: "continent" },
+  { code: "EUR", name: "Europe", group: "continent" },
+  { code: "NOA", name: "North America", group: "continent" },
+  { code: "SOA", name: "South America", group: "continent" },
+  { code: "OCE", name: "Oceania (Pacific islands)", group: "ocean" },
+  { code: "IOC", name: "Indian Ocean territories", group: "ocean" },
+];
+
+/* Fill the Region <select>: continents and ocean regions from PBDB's own codes,
+ * then every country (A–Z) from the ISO lookup. All values are PBDB cc codes. */
+(function buildRegionOptions() {
+  const opt = (code, label) => `<option value="${code}">${esc(label)}</option>`;
+  $("rg-continents").innerHTML =
+    PBDB_REGIONS.filter((r) => r.group === "continent").map((r) => opt(r.code, r.name)).join("");
+  $("rg-oceans").innerHTML =
+    PBDB_REGIONS.filter((r) => r.group === "ocean").map((r) => opt(r.code, r.name)).join("");
+  $("rg-countries").innerHTML = Object.entries(COUNTRIES)
+    .sort((a, b) => a[1].localeCompare(b[1]))
+    .map(([code, name]) => opt(code, name)).join("");
+})();
 
 /* ----------------------------------------------- Taxon autocomplete --- */
 const POPULAR = [
@@ -1383,6 +1465,7 @@ $("btn-clear").addEventListener("click", () => {
   excludes = []; renderExcludeChips();
   $("f-interval").value = ""; selectedInterval = "";
   $("f-maxma").value = ""; $("f-minma").value = ""; $("f-env").value = "";
+  $("f-region").value = "";
   $("f-view").checked = false; intHint();
   $("btn-download").disabled = true; $("f-export").disabled = true;
   legendSel = null; buildLegend();
@@ -1433,6 +1516,7 @@ function getState() {
     minma: $("f-minma").value.trim(),
     unit: $("f-unit").value,
     env: $("f-env").value,
+    region: $("f-region").value,
     formation: $("f-formation").value.trim(),
     view: $("f-view").checked ? 1 : 0,
     limit: $("f-limit").value,
@@ -1454,6 +1538,7 @@ function applyState(s) {
   $("f-minma").value = s.minma || "";
   if (s.unit) $("f-unit").value = s.unit;
   $("f-env").value = s.env || "";
+  $("f-region").value = s.region || "";
   $("f-formation").value = s.formation || "";
   $("f-view").checked = !!+s.view;
   if (s.limit) $("f-limit").value = s.limit;
@@ -1520,18 +1605,56 @@ function renderStats(recs) {
        <span class="bar-track"><span class="bar-fill" style="width:${Math.round(e.colls / maxC * 100)}%;background:${e.color}"></span></span>
        <span class="bar-num">${e.colls.toLocaleString()}</span>
      </div>`).join("");
-  const top = (m, fmt) => [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6)
-    .map(([k, v]) => `<span class="stat-chip">${esc(fmt ? fmt(k) : k)} <b>${v}</b></span>`).join("");
+  // Each chip is a button that flies the globe to that group's localities. `attr`
+  // tags it so the delegated handler below knows what to centre on.
+  const top = (m, fmt, attr) => [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6)
+    .map(([k, v]) => `<button type="button" class="stat-chip" ${attr(k)}
+        title="Fly to these localities">${esc(fmt ? fmt(k) : k)} <b>${v}</b></button>`).join("");
+  const countryChips = top(byCountry, countryName, (k) => `data-fly-cc="${esc(k)}"`);
+  const fmChips = top(byFm, null, (k) => `data-fly-fm="${esc(k)}"`);
   body.innerHTML = `
     <div class="stat-top"><span><b>${recs.length.toLocaleString()}</b> localities</span>
       <span><b>${totalOcc.toLocaleString()}</b> occurrences</span></div>
     <div class="stat-sec">Localities by period</div>
     <div class="bars">${barRows}</div>
     <div class="stat-sec">Top countries</div>
-    <div class="stat-chips">${top(byCountry, countryName) || "—"}</div>
+    <div class="stat-chips">${countryChips || "—"}</div>
     <div class="stat-sec">Top formations</div>
-    <div class="stat-chips">${top(byFm) || "—"}</div>`;
+    <div class="stat-chips">${fmChips || "—"}</div>`;
 }
+
+/* Fly the globe to the centroid of the localities matching a predicate (used by
+ * the clickable country / formation chips). A spherical mean keeps groups that
+ * straddle the antimeridian honest, and the spread sets a sensible zoom. */
+function flyToGroup(pred, label) {
+  const pts = currentRecs.filter(pred);
+  if (!pts.length) { flash(`No mapped localities for ${label}.`); return; }
+  const D = Math.PI / 180;
+  let x = 0, y = 0, z = 0;
+  for (const r of pts) {
+    const la = r.plat * D, lo = r.plng * D;
+    x += Math.cos(la) * Math.cos(lo); y += Math.cos(la) * Math.sin(lo); z += Math.sin(la);
+  }
+  x /= pts.length; y /= pts.length; z /= pts.length;
+  const lat = Math.atan2(z, Math.hypot(x, y)) / D;
+  const lng = Math.atan2(y, x) / D;
+  // Furthest point from the centroid → how tightly to zoom (one site = close in).
+  let spread = 0;
+  for (const r of pts) {
+    spread = Math.max(spread, Math.hypot((r.plat - lat), (r.plng - lng) *
+      Math.cos(lat * D)));
+  }
+  const alt = Math.min(2.2, Math.max(0.25, spread / 35 + 0.3));
+  globe.controls().autoRotate = false;
+  globe.pointOfView({ lat, lng, altitude: alt }, 1200);
+  flash(`📍 ${label} — ${pts.length} ${pts.length === 1 ? "locality" : "localities"}`);
+}
+$("stats-body").addEventListener("click", (e) => {
+  const cc = e.target.closest("[data-fly-cc]");
+  if (cc) { flyToGroup((r) => (r.cc2 || "") === cc.dataset.flyCc, countryName(cc.dataset.flyCc)); return; }
+  const fm = e.target.closest("[data-fly-fm]");
+  if (fm) flyToGroup((r) => (r.sfm || "") === fm.dataset.flyFm, fm.dataset.flyFm);
+});
 
 /* =========================================================================
  * Saved searches — name and reload any filter combination (localStorage).
@@ -1662,7 +1785,7 @@ $("f-place").addEventListener("keydown", async (e) => {
  * One-click sample queries (onboarding).
  * ========================================================================= */
 const BLANK = { taxon: "", exclude: "", interval: "", maxma: "", minma: "", unit: "Ma",
-  env: "", formation: "", view: 0 };
+  env: "", region: "", formation: "", view: 0 };
 const SAMPLES = [
   { label: "🦖 T. rex", state: { taxon: "Tyrannosaurus", interval: "Cretaceous" } },
   { label: "🦣 Ice-age mammals", state: { taxon: "Mammalia", maxma: "2.5", minma: "0", unit: "Ma" } },
