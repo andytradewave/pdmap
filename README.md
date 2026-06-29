@@ -27,19 +27,31 @@ sweep through deep time and watch the continents (and the fossils on them) move.
   shelf seas that flooded the continents (so sea level is shown, not just
   coastlines); older ages fall back to GPlates (PALEOMAP) reconstructed
   coastlines. Fossils are plotted on their paleo-coordinates throughout.
+- **Taxon info card** — searching a taxon shows an inline summary (silhouette,
+  rank, common name, naming authority, total occurrences, extinct/living) plus its
+  **stratigraphic range** (first→last appearance), with a ⏳ button to point the
+  time machine straight at that range.
+- **Geologic timescale strip** — a clickable Phanerozoic timescale along the
+  bottom (à la the PBDB Navigator); click a period to filter the whole query to
+  that interval, click again to clear.
 - **Diversity panel** — a live breakdown of the current results by period, country
   and formation, plus total localities and occurrences.
 - **Density view** — aggregates localities into weighted hexbins so fossil-rich
   regions and sampling hot-spots stand out when zoomed out.
 - **Interactive legend** — click a period to isolate points of that age.
-- **Bedrock context** — clicking a locality looks up the rock unit and lithology
-  at that spot from [Macrostrat](https://macrostrat.org/).
+- **Bedrock context & references** — clicking a locality looks up the rock unit and
+  lithology at that spot from [Macrostrat](https://macrostrat.org/), and shows the
+  primary bibliographic **reference** the data was recorded from (with links to the
+  full PBDB reference record and Google Scholar).
 - **Jump to place** — fly the globe to any named place (OpenStreetMap search).
 - **Shareable permalinks** — the full query (filters + toggles) lives in the URL;
   copy a link to reproduce any view exactly.
 - **Saved searches** — name and reload any filter combination (stored locally).
 - **Export** — download the plotted localities as **CSV**, **GeoJSON** or **KML**
-  (opens in Google Earth / QGIS), each carrying the PBDB CC-BY citation.
+  (opens in Google Earth / QGIS), or pull the underlying **occurrences as CSV**
+  (one row per fossil, with full taxonomy, ages, modern & paleo coordinates and the
+  source reference) for analysis in R / Python / QGIS — each carrying the PBDB
+  CC-BY citation.
 - **Accessibility** — a colour-blind-safe (viridis) age palette toggle, and a
   mobile bottom-sheet layout for phones.
 

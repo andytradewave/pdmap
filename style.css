@@ -255,6 +255,14 @@ button:hover { filter: brightness(1.08); }
 .macro-row { font-size: 12px; color: var(--muted); line-height: 1.5; }
 .macro-row b { color: var(--text); font-weight: 600; }
 
+/* ===== Reference / citation (detail panel) ===== */
+.locref { margin: 12px 0 4px; }
+.locref:empty { display: none; }
+.locref-head { font-size: 12px; font-weight: 600; color: var(--accent-2); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 5px; }
+.locref-src { font-size: 9px; color: var(--muted); border: 1px solid var(--border); border-radius: 999px; padding: 1px 6px; margin-left: 6px; vertical-align: middle; letter-spacing: 0; text-transform: none; }
+.locref-cite { font-size: 12px; color: var(--text); line-height: 1.45; }
+.locref .chips { margin: 8px 0 0; }
+
 /* ===== Sample-query chips ===== */
 .samples { display: flex; flex-wrap: wrap; gap: 5px; margin: 10px 0 2px; }
 .sample {
@@ -285,6 +293,29 @@ button:hover { filter: brightness(1.08); }
   border-radius: 8px; padding: 0 10px; font-size: 15px;
 }
 .saved-del:hover { color: var(--danger); border-color: var(--danger); filter: none; }
+
+/* ===== Taxon info card ===== */
+.taxon-info { margin: 12px 0 4px; border: 1px solid var(--border); border-radius: 10px; background: #0a0e16; padding: 10px 12px; }
+.taxon-info.hidden { display: none; }
+.ti-head { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin-bottom: 8px; }
+.ti-src { border: 1px solid var(--border); border-radius: 999px; padding: 1px 6px; margin-left: 6px; font-weight: 600; letter-spacing: 0; }
+.ti-main { display: flex; gap: 10px; align-items: flex-start; }
+.ti-sil { width: 46px; height: 46px; object-fit: contain; background: #fff1; border-radius: 6px; flex: 0 0 auto; }
+.ti-body { min-width: 0; flex: 1; }
+.ti-name { font-weight: 600; font-style: italic; font-size: 15px; color: var(--text); }
+.ti-rank { font-style: normal; font-weight: 400; color: var(--muted); font-size: 11px; margin-left: 6px; }
+.ti-common { color: var(--muted); font-size: 12px; margin-top: 1px; }
+.ti-facts { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 6px; font-size: 11px; color: var(--muted); }
+.ti-facts b { color: var(--text); }
+.ti-tag { border-radius: 999px; padding: 1px 8px; border: 1px solid var(--border); font-weight: 600; }
+.ti-tag.ext { color: var(--accent-2); border-color: var(--accent-2); }
+.ti-tag.extant { color: #6bd38a; border-color: #2e5e3e; }
+.ti-range-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin: 12px 0 5px; }
+.ti-range { position: relative; height: 10px; background: #0c1018; border: 1px solid var(--border); border-radius: 5px; overflow: hidden; }
+.ti-range-fill { position: absolute; top: 0; bottom: 0; background: linear-gradient(90deg, var(--accent-2), var(--accent)); border-radius: 5px; }
+.ti-range-ends { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; margin-top: 3px; }
+.ti-ivl { font-size: 11px; color: var(--text); margin-top: 3px; }
+.taxon-info .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 
 /* ===== Time machine ===== */
 .timemachine { margin: 14px 0 4px; border-top: 1px solid var(--border); padding-top: 12px; display: flex; flex-direction: column; gap: 8px; }
@@ -333,6 +364,37 @@ button:hover { filter: brightness(1.08); }
 .chip .tm-set { margin-left: 6px; padding: 1px 5px; }
 .tm-set:hover { background: var(--accent-2); color: #04121c; border-color: var(--accent-2); filter: none; }
 
+/* ===== Geologic timescale strip ===== */
+.timescale {
+  position: fixed; bottom: 14px; left: 360px; right: 16px; z-index: 14;
+  display: flex; align-items: stretch; gap: 8px; pointer-events: none;
+}
+.timescale.hidden { display: none; }
+/* When the locality detail panel (380px, right) is open, pull the strip clear of it. */
+.timescale.detail-open { right: 396px; }
+.ts-track {
+  pointer-events: auto; flex: 1; display: flex; height: 30px;
+  border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+  box-shadow: 0 6px 20px #0009;
+}
+.ts-seg {
+  position: relative; min-width: 0; padding: 0; margin: 0; border: none;
+  border-right: 1px solid #0006; border-radius: 0; color: #04121c;
+  font-size: 11px; font-weight: 700; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+}
+.ts-seg:last-child { border-right: none; }
+.ts-seg:hover { filter: brightness(1.12); }
+.ts-seg.on { box-shadow: inset 0 0 0 2px var(--text), inset 0 0 0 4px #04121c; }
+.ts-seg-lbl { pointer-events: none; white-space: nowrap; text-shadow: 0 1px 1px #fff7; }
+.ts-clear {
+  pointer-events: auto; flex: 0 0 auto; width: 30px; height: 30px; padding: 0;
+  border-radius: 8px; font-size: 13px; font-weight: 600;
+  background: var(--panel-solid); color: var(--text); border: 1px solid var(--border);
+  box-shadow: 0 6px 20px #0009;
+}
+.ts-clear.hidden { display: none; }
+
 /* ===== Density legend ===== */
 .density-legend.hidden { display: none; }
 .density-legend .dl-bar { height: 12px; border-radius: 4px; margin: 2px 0 5px; border: 1px solid var(--border); }
@@ -369,6 +431,9 @@ button:hover { filter: brightness(1.08); }
   /* No hover on touch — keep the select / time-set buttons visible */
   .suggest .pick { opacity: 1; }
   .tm-set { opacity: 1; }
+
+  /* The bottom timescale strip would collide with the bottom sheet + toggle. */
+  .timescale { display: none !important; }
 
   /* Bigger touch targets */
   .fld input[type="text"], .fld input[type="number"], .fld select { padding: 11px 12px; }

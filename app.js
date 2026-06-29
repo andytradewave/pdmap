@@ -288,6 +288,63 @@ const fmtMa = (v) => v == null ? "?" :
 
 buildLegend(); // draw the offline fallback legend immediately
 
+/* -------------------------------------------------- Geologic timescale --- */
+/* A horizontal Phanerozoic timescale along the bottom (à la PBDB Navigator):
+ * each period is a proportionally-sized, colour-matched segment; clicking one
+ * filters the whole query to that interval. Reflects the active interval. */
+const TS_ABBR = { Quaternary: "Q", Neogene: "Ng", Paleogene: "Pg", Cretaceous: "K",
+  Jurassic: "J", Triassic: "Tr", Permian: "P", Carboniferous: "C", Devonian: "D",
+  Silurian: "S", Ordovician: "O", Cambrian: "Є" };
+const tsAbbr = (name) => TS_ABBR[name] || name.slice(0, 2);
+
+function buildTimescale() {
+  const track = $("ts-track");
+  if (!track) return;
+  // Phanerozoic only — the Precambrian is ~8× longer and would crush the scale.
+  const periods = BANDS.filter((b) => b.max <= 545 && b.max - b.min > 0)
+    .slice().sort((a, b) => b.max - a.max); // oldest on the left, present on the right
+  if (!periods.length) return;
+  track.innerHTML = periods.map((p) => {
+    const dur = p.max - p.min;
+    return `<button type="button" class="ts-seg" data-period="${esc(p.name)}"
+      style="flex:${dur} ${dur} 0;background:${bandColor(p)}"
+      title="${esc(p.name)} · ${fmtMa(p.max)}–${fmtMa(p.min)} Ma — click to filter">
+      <span class="ts-seg-lbl">${esc(tsAbbr(p.name))}</span></button>`;
+  }).join("");
+  $("timescale").classList.remove("hidden");
+  updateTimescaleActive();
+}
+
+function updateTimescaleActive() {
+  const track = $("ts-track");
+  if (!track) return;
+  track.querySelectorAll(".ts-seg").forEach((s) =>
+    s.classList.toggle("on", s.dataset.period === selectedInterval));
+  $("ts-clear").classList.toggle("hidden", !selectedInterval);
+}
+
+/* Clicking a period sets it as the interval filter (clearing any custom range,
+ * which would otherwise override it) and re-runs the search; clicking the active
+ * period again clears the filter. Mirrors choosing an interval in the picker. */
+function filterToTimescale(name) {
+  if (selectedInterval === name) {
+    selectedInterval = ""; $("f-interval").value = ""; $("f-interval").title = "";
+  } else {
+    selectedInterval = name; $("f-interval").value = name;
+    $("f-interval").title = intervalPath(name);
+  }
+  $("f-maxma").value = ""; $("f-minma").value = "";
+  intHint();
+  search();
+}
+
+$("ts-track").addEventListener("click", (e) => {
+  const seg = e.target.closest(".ts-seg");
+  if (seg) filterToTimescale(seg.dataset.period);
+});
+$("ts-clear").addEventListener("click", () => { if (selectedInterval) filterToTimescale(selectedInterval); });
+buildTimescale(); // draw from the built-in periods immediately; refined once the live scale loads
+
 async function loadTimescale() {
   try {
     const res = await fetch(`${PBDB}/intervals/list.json?scale=1&vocab=pbdb`);
@@ -301,7 +358,7 @@ async function loadTimescale() {
     // Colour points and the legend from every period now available, so anything
     // back to the Hadean gets its proper ICS colour instead of falling to grey.
     const periods = INTERVALS.filter((it) => it.type === "period");
-    if (periods.length) { BANDS = periods; buildLegend(); recolorPoints(); }
+    if (periods.length) { BANDS = periods; buildLegend(); buildTimescale(); recolorPoints(); }
   } catch (e) { /* offline — keep the built-in periods */ }
 }
 
@@ -492,15 +549,53 @@ let usePaleo = false;
 let currentRecs = []; // the localities currently plotted (for stats, export, layers)
 
 let currentTaxon = ""; // remembered so locality detail can float matches to the top
+let lastFilterParams = "";  // filter-only query of the last search (reused by occurrence export)
+let lastLimit = "2000";
+
+/* Build the PBDB filter parameters (taxon + excludes, age/interval, formation,
+ * environment, region, viewport) shared by the locality search and the
+ * occurrence-level export, so an export always matches what's on the globe. */
+function buildFilterParams() {
+  const params = new URLSearchParams();
+  const taxon = $("f-taxon").value.trim();
+  if (taxon) {
+    const ex = excludes.map((s) => "^" + s).join("");
+    params.set("base_name", taxon + ex);
+  }
+  const formation = $("f-formation").value.trim();
+  if (formation) params.set("formation", formation);
+  const maxma = $("f-maxma").value.trim();
+  const minma = $("f-minma").value.trim();
+  const unit = $("f-unit").value;
+  const toMa = (v) => unit === "yr" ? v / 1e6 : unit === "ka" ? v / 1e3 : v;
+  if (maxma || minma) {
+    if (maxma) params.set("max_ma", toMa(+maxma));
+    if (minma) params.set("min_ma", toMa(+minma));
+  } else if (selectedInterval) {
+    params.set("interval", selectedInterval);
+  }
+  const env = $("f-env").value;
+  if (env) params.set("envtype", env);
+  if (selectedRegion) params.set("cc", selectedRegion); // continent or ISO-2 country code
+  if ($("f-view").checked) {
+    const b = currentViewBbox();
+    if (b) {
+      params.set("latmin", b.latmin.toFixed(3));
+      params.set("latmax", b.latmax.toFixed(3));
+      params.set("lngmin", b.lngmin.toFixed(3));
+      params.set("lngmax", b.lngmax.toFixed(3));
+    }
+  }
+  return params;
+}
 
 async function search() {
   const taxon = $("f-taxon").value.trim();
-  const formation = $("f-formation").value.trim();
   const maxma = $("f-maxma").value.trim();
   const minma = $("f-minma").value.trim();
-  const env = $("f-env").value;
   const limit = $("f-limit").value;
   currentTaxon = taxon;
+  updateTaxonInfo(taxon); // refresh the "about this taxon" card (best-effort, async)
 
   // Validate the custom range before going near the network. "Oldest" is the
   // larger number of millions of years; flag the two common mistakes clearly.
@@ -516,43 +611,17 @@ async function search() {
     }
   }
 
-  const params = new URLSearchParams();
+  const params = buildFilterParams();
+  // base_name carries both the included taxon and any excluded sub-groups, using
+  // PBDB's "^" exclusion syntax (e.g. Dinosauria^Aves = dinosaurs sans birds);
+  // the custom range / interval and viewport are also folded in by buildFilterParams.
+  lastFilterParams = params.toString(); // filter-only snapshot for occurrence export
+  lastLimit = limit;
   params.set("show", "loc,time,paleoloc");
   params.set("limit", limit);
   // Pin PBDB's paleo-coordinates to the Scotese (PALEOMAP) model so the plotted
   // fossils match the GPlates PALEOMAP coastlines we draw in ancient-Earth mode.
   params.set("pgm", "scotese");
-  // base_name carries both the included taxon and any excluded sub-groups,
-  // using PBDB's "^" exclusion syntax (e.g. Dinosauria^Aves = dinosaurs sans birds).
-  if (taxon) {
-    const ex = excludes.map((s) => "^" + s).join("");
-    params.set("base_name", taxon + ex);
-  }
-  if (formation) params.set("formation", formation);
-
-  // Convert the custom range to Ma based on the chosen units (Ma / ka / years),
-  // so "the last few thousand years" is just as easy as "the Jurassic".
-  const unit = $("f-unit").value;
-  const toMa = (v) => unit === "yr" ? v / 1e6 : unit === "ka" ? v / 1e3 : v;
-  if (maxma || minma) {
-    if (maxma) params.set("max_ma", toMa(+maxma));
-    if (minma) params.set("min_ma", toMa(+minma));
-  } else if (selectedInterval) {
-    params.set("interval", selectedInterval);
-  }
-  if (env) params.set("envtype", env);
-
-  if (selectedRegion) params.set("cc", selectedRegion); // continent or ISO-2 country code
-
-  if ($("f-view").checked) {
-    const b = currentViewBbox();
-    if (b) {
-      params.set("latmin", b.latmin.toFixed(3));
-      params.set("latmax", b.latmax.toFixed(3));
-      params.set("lngmin", b.lngmin.toFixed(3));
-      params.set("lngmax", b.lngmax.toFixed(3));
-    }
-  }
 
   setStatus("Searching PBDB…", "busy");
   $("btn-search").disabled = true;
@@ -576,6 +645,7 @@ async function search() {
     if (usePaleo) updatePaleoGlobe(); // refresh the reconstruction for the new age
     renderStats(recs);
     writeHash();
+    updateTimescaleActive(); // reflect the active interval on the bottom strip
 
     const shown = recs.length;
     const noun = shown === 1 ? "locality" : "localities";
@@ -589,6 +659,79 @@ async function search() {
   } finally {
     $("btn-search").disabled = false;
   }
+}
+
+/* --------------------------------------------------------- Taxon info --- */
+/* A compact "about this taxon" card for the searched group: silhouette, rank,
+ * common name, authority, total occurrences and — most usefully — its
+ * stratigraphic range (first/last appearance), with a ⏳ button to point the
+ * time machine straight at that range. Mirrors PBDB's Taxon Info tool inline. */
+let taxonInfoToken = 0;
+async function updateTaxonInfo(name) {
+  const box = $("taxon-info");
+  if (!box) return;
+  if (!name) { box.classList.add("hidden"); box.innerHTML = ""; return; }
+  const my = ++taxonInfoToken;
+  box.classList.remove("hidden");
+  box.innerHTML = `<div class="ti-head">About this taxon</div><div class="loading-row">Loading…</div>`;
+  try {
+    const res = await fetch(`${PBDB}/taxa/single.json?name=${encodeURIComponent(name)}&show=app,size,img,common`);
+    const rec = ((await res.json()).records || [])[0];
+    if (my !== taxonInfoToken) return; // a newer search superseded this one
+    if (!rec) { box.classList.add("hidden"); box.innerHTML = ""; return; }
+    renderTaxonInfo(rec);
+  } catch (e) {
+    if (my === taxonInfoToken) { box.classList.add("hidden"); box.innerHTML = ""; }
+  }
+}
+
+function renderTaxonInfo(r) {
+  const box = $("taxon-info");
+  const name = r.nam || currentTaxon;
+  const imgId = r.img ? String(r.img).replace(/\D/g, "") : null;
+  const txNo = String(r.oid || "").replace(/\D/g, "");
+  const pbdb = txNo ? `https://paleobiodb.org/classic/basicTaxonInfo?taxon_no=${txNo}` : null;
+  const extinct = String(r.ext) === "0";
+  const sil = imgId
+    ? `<img class="ti-sil" loading="lazy" alt="" src="${PBDB}/taxa/thumb.png?id=${imgId}"
+         onerror="this.style.display='none'"/>`
+    : "";
+
+  // Stratigraphic range: oldest first-appearance (fea) → youngest last-appearance (lla).
+  const oldest = +r.fea, youngest = +r.lla;
+  let rangeHtml = "";
+  if (!isNaN(oldest) && !isNaN(youngest) && oldest > 0) {
+    const scale = Math.max(541, oldest);            // span the Phanerozoic, or older if needed
+    const x = (a) => (1 - a / scale) * 100;          // old → left, present → right
+    const l = x(oldest), w = Math.max(1.5, x(youngest) - l);
+    const ivl = [r.tei, r.tli].filter(Boolean);
+    const ivlTxt = ivl.length ? (ivl[0] === ivl[1] ? ivl[0] : `${ivl[0]} – ${ivl[1]}`) : "";
+    rangeHtml = `
+      <div class="ti-range-lbl">Stratigraphic range
+        <button type="button" class="tm-set" data-max="${Math.round(oldest)}" data-min="${Math.round(youngest)}"
+                title="Set the time machine to this range">⏳</button></div>
+      <div class="ti-range"><span class="ti-range-fill" style="left:${l}%;width:${w}%"></span></div>
+      <div class="ti-range-ends"><span>${fmtMa(oldest)} Ma</span><span>${fmtMa(youngest)} Ma</span></div>
+      ${ivlTxt ? `<div class="ti-ivl">${esc(ivlTxt)}</div>` : ""}`;
+  }
+
+  box.innerHTML = `
+    <div class="ti-head">About this taxon <span class="ti-src">PBDB</span></div>
+    <div class="ti-main">
+      ${sil}
+      <div class="ti-body">
+        <div class="ti-name">${esc(name)}<span class="ti-rank">${esc(RANK[r.rnk] || "")}</span></div>
+        ${r.nm2 ? `<div class="ti-common">“${esc(r.nm2)}”</div>` : ""}
+        <div class="ti-facts">
+          ${r.att ? `<span title="Naming authority">${esc(r.att)}</span>` : ""}
+          ${r.noc != null ? `<span><b>${(+r.noc).toLocaleString()}</b> occ.</span>` : ""}
+          ${r.siz != null && +r.siz > 1 ? `<span><b>${(+r.siz).toLocaleString()}</b> subtaxa</span>` : ""}
+          <span class="ti-tag ${extinct ? "ext" : "extant"}">${extinct ? "Extinct" : "Living members"}</span>
+        </div>
+      </div>
+    </div>
+    ${rangeHtml}
+    ${pbdb ? `<div class="chips"><a class="chip" target="_blank" rel="noopener" href="${pbdb}">📄 PBDB taxon page</a></div>` : ""}`;
 }
 
 /* ------------------------------------------------------------- Export --- */
@@ -613,9 +756,69 @@ function exportResults() {
   const recs = currentRecs;
   if (!recs.length) return;
   const fmt = $("f-export").value;
+  if (fmt === "occ-csv") return exportOccurrencesCSV();
   if (fmt === "geojson") return exportGeoJSON(recs);
   if (fmt === "kml") return exportKML(recs);
   return exportCSV(recs);
+}
+
+/* Occurrence-level export — one row per fossil (not per locality), the form most
+ * useful for analysis in R / Python / QGIS. Re-runs the current filters against
+ * the occurrence endpoint (the globe plots collections, so the rows aren't held
+ * locally) and writes taxonomy, age, modern & paleo coordinates, and the source
+ * reference for every occurrence. */
+async function exportOccurrencesCSV() {
+  const btn = $("btn-download");
+  const prev = btn.textContent;
+  btn.disabled = true; btn.textContent = "⬇ Fetching…";
+  setStatus("Fetching occurrence-level records from PBDB…", "busy");
+  try {
+    const url = `${PBDB}/occs/list.json?${lastFilterParams}` +
+      `&show=class,coords,paleoloc,loc,strat,time,ref&pgm=scotese&limit=${lastLimit}`;
+    const json = await (await fetch(url)).json();
+    if (json.errors) throw new Error(json.errors.join("; "));
+    const occs = json.records || [];
+    if (!occs.length) { setStatus("No occurrences to export for this query.", "err"); return; }
+    const num = (v) => String(v == null ? "" : v).replace(/^\D+/, ""); // strip "occ:"/"col:" prefixes
+    const cls = (v) => (v && !/^NO_|_SPECIFIED/.test(v)) ? v : "";
+    const cols = [
+      ["occurrence_no", (o) => num(o.oid)],
+      ["collection_no", (o) => num(o.cid)],
+      ["accepted_name", (o) => o.tna || ""],
+      ["identified_name", (o) => o.idn || o.tna || ""],
+      ["rank", (o) => RANK[o.rnk] || ""],
+      ["phylum", (o) => cls(o.phl)],
+      ["class", (o) => cls(o.cll)],
+      ["order", (o) => cls(o.odl)],
+      ["family", (o) => cls(o.fml)],
+      ["genus", (o) => cls(o.gnl)],
+      ["early_interval", (o) => o.oei || ""],
+      ["late_interval", (o) => o.oli || o.oei || ""],
+      ["max_ma", (o) => o.eag ?? ""],
+      ["min_ma", (o) => o.lag ?? ""],
+      ["lat", (o) => o.lat ?? ""],
+      ["lng", (o) => o.lng ?? ""],
+      ["paleolat", (o) => o.pla ?? ""],
+      ["paleolng", (o) => o.pln ?? ""],
+      ["formation", (o) => o.sfm || ""],
+      ["country", (o) => o.cc2 || ""],
+      ["state", (o) => o.stp || ""],
+      ["reference", (o) => o.ref || ""],
+    ];
+    const cell = (v) => {
+      const s = String(v == null ? "" : v);
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const rows = [`# ${PBDB_CITE}`, cols.map((c) => c[0]).join(",")];
+    for (const o of occs) rows.push(cols.map((c) => cell(c[1](o))).join(","));
+    saveBlob(rows.join("\n"), "text/csv", exportFilename("occurrences.csv"));
+    const capped = occs.length >= +lastLimit ? ` (capped at ${lastLimit})` : "";
+    setStatus(`Exported ${occs.length.toLocaleString()} occurrences${capped}.`, "");
+  } catch (e) {
+    setStatus("Occurrence export failed: " + e.message, "err");
+  } finally {
+    btn.disabled = false; btn.textContent = prev;
+  }
 }
 
 /* Both modern and paleo coordinates are kept in every format. */
@@ -927,6 +1130,7 @@ async function openLocality(d) {
   const panel = $("detail");
   const body = $("detail-body");
   panel.classList.remove("hidden");
+  $("timescale").classList.add("detail-open"); // make room so the panel doesn't cover the strip
   const myToken = ++openToken;
 
   const collNo = String(d.oid || "").replace(/\D/g, "");
@@ -952,10 +1156,12 @@ async function openLocality(d) {
       <a class="chip" target="_blank" rel="noopener"
          href="${PBDB}/colls/single.json?id=${d.oid}&show=loc,time,strat,refs">📄 PBDB record</a>
     </div>
+    <div id="loc-ref" class="locref"></div>
     <div id="macro-context" class="macro"></div>
     <div class="taxa-head"><h3>Fossils found here</h3><span class="count" id="taxa-count"></span></div>
     <div id="taxa-list"><div class="loading-row">Loading taxa…</div></div>`;
 
+  fetchReference(collNo, myToken); // the publication this collection was recorded from
   fetchMacro(d, myToken); // bedrock / formation context from Macrostrat (best-effort)
 
   try {
@@ -1000,6 +1206,32 @@ async function fetchMacro(d, token) {
     ].filter(Boolean);
     box.innerHTML = `<div class="macro-head">Bedrock context <span class="macro-src">Macrostrat</span></div>
       ${rows.map(([k, v]) => `<div class="macro-row"><b>${esc(k)}:</b> ${esc(v)}</div>`).join("")}`;
+  } catch (e) {
+    if (token === openToken && box) box.innerHTML = ""; // silent on failure
+  }
+}
+
+/* Primary bibliographic reference — the publication this collection's data was
+ * recorded from. PBDB is CC-BY, so crediting the source matters; we fetch the
+ * formatted citation and link to the full reference record on PBDB. */
+async function fetchReference(collNo, token) {
+  const box = $("loc-ref");
+  if (!box || !collNo) return;
+  box.innerHTML = `<div class="locref-head">Reference</div><div class="loading-row">Looking up the source…</div>`;
+  try {
+    const res = await fetch(`${PBDB}/colls/single.json?id=${collNo}&show=ref`);
+    const rec = ((await res.json()).records || [])[0];
+    if (token !== openToken) return; // a newer locality was opened
+    if (!rec || !rec.ref) { box.innerHTML = ""; return; }
+    const refNo = String(rec.rid || "").replace(/\D/g, "");
+    const pbdbRef = refNo ? `https://paleobiodb.org/classic/displayReference?reference_no=${refNo}` : null;
+    const scholar = `https://scholar.google.com/scholar?q=${encodeURIComponent(rec.ref.replace(/\s+/g, " ").slice(0, 200))}`;
+    box.innerHTML = `<div class="locref-head">Reference <span class="locref-src">PBDB · CC-BY</span></div>
+      <div class="locref-cite">${esc(rec.ref)}</div>
+      <div class="chips">
+        ${pbdbRef ? `<a class="chip" target="_blank" rel="noopener" href="${pbdbRef}">📚 Full reference</a>` : ""}
+        <a class="chip" target="_blank" rel="noopener" href="${scholar}">🔍 Google Scholar</a>
+      </div>`;
   } catch (e) {
     if (token === openToken && box) box.innerHTML = ""; // silent on failure
   }
@@ -1647,13 +1879,17 @@ $("btn-clear").addEventListener("click", () => {
   $("btn-download").disabled = true; $("f-export").disabled = true;
   legendSel = null; buildLegend();
   if (typeof tmStop === "function") tmStop();
+  currentTaxon = ""; updateTaxonInfo("");
   currentRecs = [];
   globe.pointsData([]); globe.hexBinPointsData([]);
   setStatus("");
   writeHash();
 });
 $("btn-download").addEventListener("click", exportResults);
-$("detail-close").addEventListener("click", () => $("detail").classList.add("hidden"));
+$("detail-close").addEventListener("click", () => {
+  $("detail").classList.add("hidden");
+  $("timescale").classList.remove("detail-open");
+});
 $("panel-toggle").addEventListener("click", () => $("panel").classList.remove("collapsed"));
 $("panel-close").addEventListener("click", () => $("panel").classList.add("collapsed"));
 
@@ -1999,7 +2235,7 @@ $("legend-list").addEventListener("click", (e) => {
 });
 $("f-cb").addEventListener("change", (e) => {
   cbSafe = e.target.checked;
-  buildLegend(); recolorPoints();
+  buildLegend(); buildTimescale(); recolorPoints();
   writeHash();
 });
 $("f-density").addEventListener("change", () => { applyLayerMode(); writeHash(); });

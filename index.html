@@ -126,15 +126,18 @@
       <div class="btns export-row">
         <button type="button" id="btn-download" class="ghost" disabled>⬇ Export</button>
         <select id="f-export" title="Export format" disabled>
-          <option value="csv">CSV</option>
-          <option value="geojson">GeoJSON</option>
-          <option value="kml">KML (Google Earth)</option>
+          <option value="csv">Localities — CSV</option>
+          <option value="occ-csv">Occurrences — CSV</option>
+          <option value="geojson">Localities — GeoJSON</option>
+          <option value="kml">Localities — KML (Google Earth)</option>
         </select>
         <button type="button" id="btn-link" class="ghost" title="Copy a shareable link to this exact view">🔗 Link</button>
       </div>
     </form>
 
     <div id="status" class="status"></div>
+
+    <div id="taxon-info" class="taxon-info hidden"></div>
 
     <details id="saved-wrap" class="adv saved hidden">
       <summary>★ Saved searches</summary>
@@ -193,6 +196,12 @@
   </aside>
 
   <button id="panel-toggle" title="Show/hide panel">☰</button>
+
+  <!-- ===== Geologic timescale strip (click a period to filter) ===== -->
+  <div id="timescale" class="timescale hidden" aria-label="Geologic timescale — click a period to filter the map">
+    <div id="ts-track" class="ts-track"></div>
+    <button type="button" id="ts-clear" class="ts-clear hidden" title="Clear the period filter">✕</button>
+  </div>
 
   <!-- ===== Detail panel (locality + taxa) ===== -->
   <aside id="detail" class="detail hidden">
