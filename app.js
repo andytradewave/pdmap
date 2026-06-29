@@ -250,6 +250,7 @@ const LEVELS = ["eon", "era", "period", "epoch", "age"];
 let INTERVALS = PERIODS.map((p) => // sensible offline default
   ({ name: p.name, type: "period", max: p.max, min: p.min, color: p.color }));
 let selectedInterval = "";
+let selectedRegion = "";          // PBDB cc code (continent or country); "" = whole world
 let intervalRoots = [];           // top of the timescale tree (the eons)
 let intById = new Map();          // interval id -> node
 const expandedInts = new Set();   // ids of expanded tree nodes
@@ -541,8 +542,7 @@ async function search() {
   }
   if (env) params.set("envtype", env);
 
-  const region = $("f-region").value;
-  if (region) params.set("cc", region); // continent or ISO-2 country code
+  if (selectedRegion) params.set("cc", selectedRegion); // continent or ISO-2 country code
 
   if ($("f-view").checked) {
     const b = currentViewBbox();
@@ -1178,18 +1178,48 @@ const PBDB_REGIONS = [
   { code: "IOC", name: "Indian Ocean territories", group: "ocean" },
 ];
 
-/* Fill the Region <select>: continents and ocean regions from PBDB's own codes,
- * then every country (A–Z) from the ISO lookup. All values are PBDB cc codes. */
-(function buildRegionOptions() {
-  const opt = (code, label) => `<option value="${code}">${esc(label)}</option>`;
-  $("rg-continents").innerHTML =
-    PBDB_REGIONS.filter((r) => r.group === "continent").map((r) => opt(r.code, r.name)).join("");
-  $("rg-oceans").innerHTML =
-    PBDB_REGIONS.filter((r) => r.group === "ocean").map((r) => opt(r.code, r.name)).join("");
-  $("rg-countries").innerHTML = Object.entries(COUNTRIES)
-    .sort((a, b) => a[1].localeCompare(b[1]))
-    .map(([code, name]) => opt(code, name)).join("");
+/* Which countries sit under each PBDB region, so the Region picker can be browsed
+ * as a tree (continent ▸ its countries) instead of one long alphabetical list.
+ * Grouping is only for browsing — the value sent to PBDB is always the code below,
+ * whether a 3-letter region or a 2-letter country. */
+const REGION_MEMBERS = {
+  AFR: "DZ AO BJ BW BF BI CV CM CF TD KM CG CD CI DJ EG GQ ER SZ ET GA GM GH GN GW KE LS LR LY MG MW ML MR MU YT MA MZ NA NE NG RE RW ST SN SC SL SO ZA SS SD TZ TG TN UG EH ZM ZW SH",
+  ASI: "AF AM AZ BH BD BT BN KH CN GE HK IN ID IR IQ IL JP JO KZ KW KG LA LB MO MY MV MN MM NP KP KR OM PK PS PH QA SA SG LK SY TW TJ TH TL TR TM AE UZ VN YE",
+  EUR: "AX AL AD AT BY BE BA BG HR CY CZ DK EE FO FI FR DE GI GR GG HU IS IE IM IT JE LV LI LT LU MT MD MC ME NL MK NO PL PT RO RU SM RS SK SI ES SJ SE CH UA GB VA",
+  NOA: "AI AG AW BS BB BZ BM VG CA KY CR CU CW DM DO SV GL GD GP GT HT HN JM MQ MX MS NI PA PR BL KN LC MF PM VC SX TT TC US VI",
+  SOA: "AR BO BR CL CO EC FK GF GY PE PY SR UY VE",
+  AUS: "AU",
+  ATA: "AQ BV HM TF GS",
+  OCE: "AS CK FJ PF GU KI MH FM NR NC NZ NU NF MP PW PG PN WS SB TK TO TV UM VU WF",
+  IOC: "IO CX CC",
+};
+
+/* Browsable tree: each PBDB region node carries its member countries (A–Z). Any
+ * country not bucketed above falls into a catch-all so nothing is unreachable. */
+const REGION_TREE = (function buildRegionTree() {
+  const assigned = new Set();
+  const tree = PBDB_REGIONS.map((r) => {
+    const codes = (REGION_MEMBERS[r.code] || "").split(/\s+/).filter(Boolean);
+    const children = codes.filter((c) => COUNTRIES[c]).map((c) => {
+      assigned.add(c);
+      return { code: c, name: COUNTRIES[c] };
+    }).sort((a, b) => a.name.localeCompare(b.name));
+    return { code: r.code, name: r.name, children };
+  });
+  const leftover = Object.keys(COUNTRIES).filter((c) => !assigned.has(c))
+    .map((c) => ({ code: c, name: COUNTRIES[c] })).sort((a, b) => a.name.localeCompare(b.name));
+  if (leftover.length) tree.push({ code: "", name: "Other territories", children: leftover });
+  return tree;
 })();
+
+/* code → human label, covering both region codes and every country code. */
+const REGION_LABEL = (function () {
+  const m = {};
+  for (const r of PBDB_REGIONS) m[r.code] = r.name;
+  for (const [c, n] of Object.entries(COUNTRIES)) m[c] = n;
+  return m;
+})();
+const regionLabel = (code) => REGION_LABEL[code] || code || "";
 
 /* ----------------------------------------------- Taxon autocomplete --- */
 const POPULAR = [
@@ -1451,9 +1481,123 @@ const excludePicker = createTaxonPicker($("f-exclude"), $("exclude-suggest"), {
 renderExcludeChips();
 pickerHides.push(intHide); // so opening the taxon/exclude tree also closes the interval tree
 
+/* =========================================================================
+ * Region picker — a tree (continent ▸ its countries) with type-to-search,
+ * mirroring the interval picker. Selecting a continent or country sets its
+ * PBDB cc code in `selectedRegion`; the input just shows the readable label.
+ * ========================================================================= */
+const rgInput = $("f-region"), rgBox = $("region-suggest"), RG_STORE = "pdmap.rg.exp";
+let rgItems = [], rgActive = -1;
+const expandedRegions = loadSet(RG_STORE);
+
+const RG_HINT = `<div class="tree-hint">Click <b>▸</b> to open a continent · click a name to choose it</div>`;
+const rgWorldRow = () =>
+  `<div class="opt tnode${selectedRegion === "" ? " sel" : ""}" data-val="">
+     <span class="tw none"></span><span class="nm">🌍 Whole world</span><span class="lvl">all regions</span></div>`;
+
+function rgTreeHtml() {
+  return REGION_TREE.map((g) => {
+    const open = expandedRegions.has(g.code || g.name);
+    const tw = `<span class="tw">${open ? "▾" : "▸"}</span>`;
+    const sel = g.code && g.code === selectedRegion ? " sel" : "";
+    // A real region (continent/ocean) is itself selectable; the catch-all isn't.
+    const pick = g.code ? PICK_BTN(g.name) : "";
+    const kind = g.code ? (g.code === "OCE" || g.code === "IOC" ? "ocean" : "continent") : "group";
+    let html = `<div class="opt tnode${sel}" data-val="${g.code}" data-grp="${esc(g.code || g.name)}" data-exp="1">
+        ${tw}<span class="nm">${esc(g.name)}</span><span class="lvl">${kind}</span>${pick}</div>`;
+    if (open) html += g.children.map((c) =>
+      `<div class="opt tnode${c.code === selectedRegion ? " sel" : ""}" data-val="${c.code}" style="padding-left:30px">
+         <span class="tw none"></span><span class="nm">${esc(c.name)}</span><span class="lvl">${esc(c.code)}</span></div>`).join("");
+    return html;
+  }).join("");
+}
+
+function rgSync() { rgItems = [...rgBox.querySelectorAll(".opt")].map((el) => el.dataset.val); rgActive = -1; }
+function rgShow() { rgBox.classList.remove("hidden"); }
+function rgHide() {
+  rgBox.classList.add("hidden"); rgActive = -1;
+  rgInput.value = selectedRegion ? regionLabel(selectedRegion) : ""; // drop any half-typed query
+}
+pickerHides.push(rgHide);
+
+function rgRenderTree(scrollToSel) {
+  rgBox.innerHTML = RG_HINT + rgWorldRow() + rgTreeHtml();
+  rgSync(); rgShow();
+  if (scrollToSel) { const s = rgBox.querySelector(".opt.sel"); if (s) s.scrollIntoView({ block: "center" }); }
+}
+
+function rgRenderSearch(q) {
+  const ql = q.trim().toLowerCase();
+  const rows = [];
+  for (const g of REGION_TREE) {
+    if (g.code && g.name.toLowerCase().includes(ql)) {
+      const kind = g.code === "OCE" || g.code === "IOC" ? "ocean" : "continent";
+      rows.push(`<div class="opt" data-val="${g.code}"><span class="nm">${esc(g.name)}</span><span class="lvl">${kind}</span></div>`);
+    }
+    for (const c of g.children) {
+      if (c.name.toLowerCase().includes(ql) || c.code.toLowerCase() === ql) {
+        rows.push(`<div class="opt" data-val="${c.code}"><span class="nm">${esc(c.name)}</span><span class="rk">${esc(g.name)}</span><span class="lvl">${esc(c.code)}</span></div>`);
+      }
+    }
+  }
+  rgBox.innerHTML = rows.length ? rows.join("") : `<div class="grp">No region matches “${esc(q)}”</div>`;
+  rgSync(); rgShow();
+}
+
+function setRegion(code) { // update state + label without searching (load / clear)
+  selectedRegion = code || "";
+  rgInput.value = selectedRegion ? regionLabel(selectedRegion) : "";
+}
+function pickRegion(code) {
+  setRegion(code);
+  rgHide();
+  search();
+}
+function rgSetActive(i) {
+  const opts = rgBox.querySelectorAll(".opt");
+  if (!opts.length) return;
+  rgActive = (i + opts.length) % opts.length;
+  opts.forEach((el, n) => el.classList.toggle("active", n === rgActive));
+  opts[rgActive].scrollIntoView({ block: "nearest" });
+}
+
+rgInput.addEventListener("input", () => {
+  const q = rgInput.value.trim();
+  q ? rgRenderSearch(q) : rgRenderTree(false);
+});
+rgInput.addEventListener("focus", () => { closeOtherPickers(rgHide); rgInput.select(); rgRenderTree(true); });
+rgInput.addEventListener("click", () => {
+  if (rgBox.classList.contains("hidden")) { closeOtherPickers(rgHide); rgRenderTree(true); }
+});
+rgInput.addEventListener("keydown", (e) => {
+  if (rgBox.classList.contains("hidden")) return;
+  if (e.key === "ArrowDown") { e.preventDefault(); rgSetActive(rgActive + 1); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); rgSetActive(rgActive - 1); }
+  else if (e.key === "Enter" && rgActive >= 0) { e.preventDefault(); pickRegion(rgItems[rgActive]); }
+  else if (e.key === "Escape") { rgHide(); }
+});
+rgBox.addEventListener("mousedown", (e) => {
+  e.stopPropagation();
+  const pick = e.target.closest("[data-pick]");
+  if (pick) { e.preventDefault(); pickRegion(pick.closest(".opt").dataset.val); return; }
+  const row = e.target.closest(".opt");
+  if (!row) return;
+  e.preventDefault();
+  if (row.dataset.exp === "1" && row.dataset.grp != null) { // a continent header → expand/collapse
+    const id = row.dataset.grp;
+    expandedRegions.has(id) ? expandedRegions.delete(id) : expandedRegions.add(id);
+    saveSet(RG_STORE, expandedRegions);
+    rgRenderTree(false);
+    const r2 = rgBox.querySelector(`.opt[data-grp="${CSS.escape(id)}"]`);
+    if (r2) r2.scrollIntoView({ block: "nearest" });
+    return;
+  }
+  pickRegion(row.dataset.val); // World row or a country leaf → select
+});
+
 /* One outside-click handler closes whichever picker is open. */
 document.addEventListener("mousedown", (e) => {
-  if (!e.target.closest(".suggest-wrap")) { taxonPicker.hide(); excludePicker.hide(); }
+  if (!e.target.closest(".suggest-wrap")) { taxonPicker.hide(); excludePicker.hide(); rgHide(); }
 });
 
 /* ----------------------------------------------------------------- Wire up --- */
@@ -1465,7 +1609,7 @@ $("btn-clear").addEventListener("click", () => {
   excludes = []; renderExcludeChips();
   $("f-interval").value = ""; selectedInterval = "";
   $("f-maxma").value = ""; $("f-minma").value = ""; $("f-env").value = "";
-  $("f-region").value = "";
+  setRegion("");
   $("f-view").checked = false; intHint();
   $("btn-download").disabled = true; $("f-export").disabled = true;
   legendSel = null; buildLegend();
@@ -1516,7 +1660,7 @@ function getState() {
     minma: $("f-minma").value.trim(),
     unit: $("f-unit").value,
     env: $("f-env").value,
-    region: $("f-region").value,
+    region: selectedRegion,
     formation: $("f-formation").value.trim(),
     view: $("f-view").checked ? 1 : 0,
     limit: $("f-limit").value,
@@ -1538,7 +1682,7 @@ function applyState(s) {
   $("f-minma").value = s.minma || "";
   if (s.unit) $("f-unit").value = s.unit;
   $("f-env").value = s.env || "";
-  $("f-region").value = s.region || "";
+  setRegion(s.region || "");
   $("f-formation").value = s.formation || "";
   $("f-view").checked = !!+s.view;
   if (s.limit) $("f-limit").value = s.limit;

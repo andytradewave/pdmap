@@ -96,13 +96,11 @@
 
       <label class="fld">
         <span>Region</span>
-        <select id="f-region">
-          <option value="">🌍 Whole world</option>
-          <optgroup label="Continents" id="rg-continents"></optgroup>
-          <optgroup label="Oceans &amp; island regions" id="rg-oceans"></optgroup>
-          <optgroup label="Countries" id="rg-countries"></optgroup>
-        </select>
-        <small>Limit the search to a whole continent, ocean region or single country.</small>
+        <div class="suggest-wrap">
+          <input id="f-region" type="text" placeholder="🌍 Whole world — type a country or continent…" autocomplete="off" />
+          <div id="region-suggest" class="suggest hidden"></div>
+        </div>
+        <small>Whole world by default. Click ▸ to open a continent, or type to find a country.</small>
       </label>
 
       <label class="fld chk">
