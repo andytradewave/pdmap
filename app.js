@@ -1110,9 +1110,10 @@ function taxonCard(o, isMatch = false) {
   </div>`;
 }
 
-/* Full ISO-3166-1 alpha-2 lookup so every country code PBDB returns shows as a
- * readable name (and doubles as the source for the Region filter's country list).
- * A few are shortened to their everyday names (USA, UK) rather than the formal one. */
+/* Country-code → readable name for every code PBDB returns (also the source for
+ * the Region filter's country list). Codes follow PBDB's table (config.json?show=
+ * countries), which is ISO-3166-1 alpha-2 except UK (not GB) and FA (not FK).
+ * A few names are shortened to their everyday form (USA, UK). */
 const COUNTRIES = {
   AF: "Afghanistan", AX: "Åland Islands", AL: "Albania", DZ: "Algeria", AS: "American Samoa",
   AD: "Andorra", AO: "Angola", AI: "Anguilla", AQ: "Antarctica", AG: "Antigua & Barbuda",
@@ -1127,7 +1128,7 @@ const COUNTRIES = {
   CI: "Côte d’Ivoire", HR: "Croatia", CU: "Cuba", CW: "Curaçao", CY: "Cyprus", CZ: "Czechia",
   DK: "Denmark", DJ: "Djibouti", DM: "Dominica", DO: "Dominican Republic", EC: "Ecuador",
   EG: "Egypt", SV: "El Salvador", GQ: "Equatorial Guinea", ER: "Eritrea", EE: "Estonia",
-  SZ: "Eswatini", ET: "Ethiopia", FK: "Falkland Islands", FO: "Faroe Islands", FJ: "Fiji",
+  SZ: "Eswatini", ET: "Ethiopia", FA: "Falkland Islands", FO: "Faroe Islands", FJ: "Fiji",
   FI: "Finland", FR: "France", GF: "French Guiana", PF: "French Polynesia",
   TF: "French Southern Territories", GA: "Gabon", GM: "Gambia", GE: "Georgia", DE: "Germany",
   GH: "Ghana", GI: "Gibraltar", GR: "Greece", GL: "Greenland", GD: "Grenada", GP: "Guadeloupe",
@@ -1158,44 +1159,60 @@ const COUNTRIES = {
   TJ: "Tajikistan", TZ: "Tanzania", TH: "Thailand", TL: "Timor-Leste", TG: "Togo", TK: "Tokelau",
   TO: "Tonga", TT: "Trinidad & Tobago", TN: "Tunisia", TR: "Türkiye", TM: "Turkmenistan",
   TC: "Turks & Caicos Islands", TV: "Tuvalu", UG: "Uganda", UA: "Ukraine",
-  AE: "United Arab Emirates", GB: "UK", US: "USA", UM: "US Minor Outlying Islands",
+  AE: "United Arab Emirates", UK: "UK", US: "USA", UM: "US Minor Outlying Islands",
+  BQ: "Bonaire",
   UY: "Uruguay", UZ: "Uzbekistan", VU: "Vanuatu", VE: "Venezuela", VN: "Vietnam",
   VG: "British Virgin Islands", VI: "US Virgin Islands", WF: "Wallis & Futuna",
   EH: "Western Sahara", YE: "Yemen", ZM: "Zambia", ZW: "Zimbabwe" };
 const countryName = (cc) => COUNTRIES[cc] || cc || "";
 
-/* PBDB's own "continent" codes (config.json?show=continents) — used by the
- * Region filter alongside the ISO-2 country codes above; both go to PBDB's cc param. */
+/* PBDB's own continent codes (config.json?show=continents) — used by the Region
+ * filter alongside the country codes above; both go to PBDB's cc param. */
 const PBDB_REGIONS = [
-  { code: "AFR", name: "Africa", group: "continent" },
-  { code: "ATA", name: "Antarctica", group: "continent" },
-  { code: "ASI", name: "Asia", group: "continent" },
-  { code: "AUS", name: "Australia", group: "continent" },
-  { code: "EUR", name: "Europe", group: "continent" },
-  { code: "NOA", name: "North America", group: "continent" },
-  { code: "SOA", name: "South America", group: "continent" },
-  { code: "OCE", name: "Oceania (Pacific islands)", group: "ocean" },
-  { code: "IOC", name: "Indian Ocean territories", group: "ocean" },
+  { code: "AFR", name: "Africa" },
+  { code: "ASI", name: "Asia" },
+  { code: "EUR", name: "Europe" },
+  { code: "NOA", name: "North America" },
+  { code: "SOA", name: "South America" },
+  { code: "AUS", name: "Australia" },
+  { code: "ATA", name: "Antarctica" },
+  { code: "OCE", name: "Oceania (Pacific islands)" },
+  { code: "IOC", name: "Indian Ocean territories" },
+];
+
+/* PBDB's open-ocean basin codes (config.json?show=countries, codes O1–O7) — real
+ * marine regions, distinct from the land groupings above. These let you filter to
+ * the deep sea, which the continent codes don't cover. */
+const OCEANS = [
+  { code: "O1", name: "Arctic Ocean" },
+  { code: "O2", name: "North Atlantic" },
+  { code: "O3", name: "South Atlantic" },
+  { code: "O4", name: "North Pacific" },
+  { code: "O5", name: "South Pacific" },
+  { code: "O6", name: "Indian Ocean" },
+  { code: "O7", name: "Southern Ocean" },
 ];
 
 /* Which countries sit under each PBDB region, so the Region picker can be browsed
  * as a tree (continent ▸ its countries) instead of one long alphabetical list.
- * Grouping is only for browsing — the value sent to PBDB is always the code below,
- * whether a 3-letter region or a 2-letter country. */
+ * Grouping is only for browsing — the value sent to PBDB is always the code below.
+ * Codes follow PBDB's table, which mostly matches ISO-3166-1 but uses UK (not GB)
+ * and FA (not FK). */
 const REGION_MEMBERS = {
   AFR: "DZ AO BJ BW BF BI CV CM CF TD KM CG CD CI DJ EG GQ ER SZ ET GA GM GH GN GW KE LS LR LY MG MW ML MR MU YT MA MZ NA NE NG RE RW ST SN SC SL SO ZA SS SD TZ TG TN UG EH ZM ZW SH",
   ASI: "AF AM AZ BH BD BT BN KH CN GE HK IN ID IR IQ IL JP JO KZ KW KG LA LB MO MY MV MN MM NP KP KR OM PK PS PH QA SA SG LK SY TW TJ TH TL TR TM AE UZ VN YE",
-  EUR: "AX AL AD AT BY BE BA BG HR CY CZ DK EE FO FI FR DE GI GR GG HU IS IE IM IT JE LV LI LT LU MT MD MC ME NL MK NO PL PT RO RU SM RS SK SI ES SJ SE CH UA GB VA",
-  NOA: "AI AG AW BS BB BZ BM VG CA KY CR CU CW DM DO SV GL GD GP GT HT HN JM MQ MX MS NI PA PR BL KN LC MF PM VC SX TT TC US VI",
-  SOA: "AR BO BR CL CO EC FK GF GY PE PY SR UY VE",
+  EUR: "AX AL AD AT BY BE BA BG HR CY CZ DK EE FO FI FR DE GI GR GG HU IS IE IM IT JE LV LI LT LU MT MD MC ME NL MK NO PL PT RO RU SM RS SK SI ES SJ SE CH UA UK VA",
+  NOA: "AI AG AW BS BB BZ BM VG CA KY CR CU CW DM DO SV GL GD GP GT HT HN JM MQ MX MS NI PA PR BL KN LC MF PM VC SX TT TC US VI BQ",
+  SOA: "AR BO BR CL CO EC FA GF GY PE PY SR UY VE",
   AUS: "AU",
   ATA: "AQ BV HM TF GS",
   OCE: "AS CK FJ PF GU KI MH FM NR NC NZ NU NF MP PW PG PN WS SB TK TO TV UM VU WF",
   IOC: "IO CX CC",
 };
 
-/* Browsable tree: each PBDB region node carries its member countries (A–Z). Any
- * country not bucketed above falls into a catch-all so nothing is unreachable. */
+/* Browsable tree: each PBDB region node carries its member countries (A–Z), then
+ * the open oceans as their own branch. Any country not bucketed above falls into a
+ * catch-all so nothing is unreachable. */
 const REGION_TREE = (function buildRegionTree() {
   const assigned = new Set();
   const tree = PBDB_REGIONS.map((r) => {
@@ -1209,16 +1226,31 @@ const REGION_TREE = (function buildRegionTree() {
   const leftover = Object.keys(COUNTRIES).filter((c) => !assigned.has(c))
     .map((c) => ({ code: c, name: COUNTRIES[c] })).sort((a, b) => a.name.localeCompare(b.name));
   if (leftover.length) tree.push({ code: "", name: "Other territories", children: leftover });
+  // Open oceans: a non-selectable header whose children are the selectable basins.
+  tree.push({ code: "", name: "Oceans (open water)", children: OCEANS.map((o) => ({ ...o, tag: "ocean" })) });
   return tree;
 })();
 
-/* code → human label, covering both region codes and every country code. */
+/* code → human label, covering region, ocean and every country code. */
 const REGION_LABEL = (function () {
   const m = {};
   for (const r of PBDB_REGIONS) m[r.code] = r.name;
+  for (const o of OCEANS) m[o.code] = o.name;
   for (const [c, n] of Object.entries(COUNTRIES)) m[c] = n;
   return m;
 })();
+
+/* Extra search terms so a country is found by names other than its short label —
+ * e.g. "Britain" or "United Kingdom" both find UK, "Turkey" finds Türkiye. */
+const REGION_ALIASES = {
+  UK: "united kingdom britain great britain england scotland wales",
+  US: "united states of america", RU: "russian federation", CZ: "czech republic",
+  TR: "turkey", SZ: "swaziland", MM: "burma", CI: "ivory coast", MK: "macedonia",
+  CD: "democratic republic of the congo drc zaire", CG: "republic of the congo",
+  CV: "cape verde", TL: "east timor", VA: "holy see vatican", FA: "falklands malvinas",
+  KP: "north korea dprk", KR: "south korea", LA: "lao", SY: "syrian arab republic",
+  BQ: "caribbean netherlands sint eustatius saba", NL: "holland",
+};
 const regionLabel = (code) => REGION_LABEL[code] || code || "";
 
 /* ----------------------------------------------- Taxon autocomplete --- */
@@ -1507,7 +1539,7 @@ function rgTreeHtml() {
         ${tw}<span class="nm">${esc(g.name)}</span><span class="lvl">${kind}</span>${pick}</div>`;
     if (open) html += g.children.map((c) =>
       `<div class="opt tnode${c.code === selectedRegion ? " sel" : ""}" data-val="${c.code}" style="padding-left:30px">
-         <span class="tw none"></span><span class="nm">${esc(c.name)}</span><span class="lvl">${esc(c.code)}</span></div>`).join("");
+         <span class="tw none"></span><span class="nm">${esc(c.name)}</span><span class="lvl">${esc(c.tag || c.code)}</span></div>`).join("");
     return html;
   }).join("");
 }
@@ -1535,8 +1567,9 @@ function rgRenderSearch(q) {
       rows.push(`<div class="opt" data-val="${g.code}"><span class="nm">${esc(g.name)}</span><span class="lvl">${kind}</span></div>`);
     }
     for (const c of g.children) {
-      if (c.name.toLowerCase().includes(ql) || c.code.toLowerCase() === ql) {
-        rows.push(`<div class="opt" data-val="${c.code}"><span class="nm">${esc(c.name)}</span><span class="rk">${esc(g.name)}</span><span class="lvl">${esc(c.code)}</span></div>`);
+      const alias = REGION_ALIASES[c.code] || "";
+      if (c.name.toLowerCase().includes(ql) || alias.includes(ql) || c.code.toLowerCase() === ql) {
+        rows.push(`<div class="opt" data-val="${c.code}"><span class="nm">${esc(c.name)}</span><span class="rk">${esc(g.name)}</span><span class="lvl">${esc(c.tag || c.code)}</span></div>`);
       }
     }
   }
