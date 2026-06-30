@@ -2605,22 +2605,31 @@ document.addEventListener("click", (e) => {
 /* =========================================================================
  * Fly-to place search (OpenStreetMap / Nominatim).
  * ========================================================================= */
-$("f-place").addEventListener("keydown", async (e) => {
-  if (e.key !== "Enter") return;
-  e.preventDefault();
+async function flyToPlace() {
   const q = $("f-place").value.trim();
   if (!q) return;
   flash(`Finding “${q}”…`);
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 8000); // don't hang on a slow/throttled lookup
   try {
     const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`,
-      { headers: { "Accept-Language": "en" } });
+      { headers: { "Accept-Language": "en" }, signal: ac.signal });
     const hit = (await res.json())[0];
     if (!hit) { flash(`No place found for “${q}”.`); return; }
     globe.controls().autoRotate = false;
     globe.pointOfView({ lat: +hit.lat, lng: +hit.lon, altitude: 1.1 }, 1200);
     flash(`📍 ${(hit.display_name || q).split(",").slice(0, 2).join(",")}`);
-  } catch (err) { flash("Place search failed — try again."); }
-});
+  } catch (err) {
+    flash("Couldn’t reach the place finder — try again in a moment.");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+// Enter (desktop), the mobile keyboard's "go/search" key, and a tap-able button —
+// phones don't reliably send Enter, so the button is the dependable trigger.
+$("f-place").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); flyToPlace(); } });
+$("f-place").addEventListener("search", flyToPlace);
+$("btn-place").addEventListener("click", flyToPlace);
 
 /* =========================================================================
  * One-click sample queries (onboarding).

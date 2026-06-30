@@ -188,8 +188,11 @@
     <label class="fld chk"><input id="f-cb" type="checkbox" /><span>Colour-blind-safe ages</span></label>
     <label class="fld">
       <span>Jump to place</span>
-      <input id="f-place" type="text" placeholder="e.g. Mongolia, Hell Creek, London…" autocomplete="off" />
-      <small>Fly the globe to a place (OpenStreetMap search). Press Enter.</small>
+      <div class="place-row">
+        <input id="f-place" type="search" enterkeyhint="go" placeholder="e.g. Mongolia, Hell Creek, London…" autocomplete="off" />
+        <button type="button" id="btn-place" class="ghost" aria-label="Fly to this place">Go</button>
+      </div>
+      <small>Fly the globe to a place (OpenStreetMap search).</small>
     </label>
   </div>
 

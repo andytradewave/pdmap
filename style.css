@@ -374,6 +374,9 @@ button:hover { filter: brightness(1.08); }
 }
 .layers-pop.hidden { display: none; }
 .lp-head { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); }
+.place-row { display: flex; gap: 6px; }
+.place-row #f-place { flex: 1; min-width: 0; }
+.place-row #btn-place { flex: 0 0 auto; padding: 0 14px; }
 
 /* ===== Export row ===== */
 .export-row select {
