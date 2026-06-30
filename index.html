@@ -54,11 +54,8 @@
 
       <label class="fld">
         <span>Time interval</span>
-        <div class="suggest-wrap">
-          <input id="f-interval" type="text" placeholder="Type to search, or browse the tree…" autocomplete="off" />
-          <div id="interval-suggest" class="suggest hidden"></div>
-        </div>
-        <small id="interval-hint">Eon ▸ era ▸ period ▸ epoch ▸ age. Click ▸ to drill in, or type to search.</small>
+        <small>Pick an interval on the colourful timescale at the top of the page —
+          click an eon/era to drill into its periods, epochs and ages.</small>
       </label>
 
       <label class="fld">
@@ -144,24 +141,6 @@
       <div id="saved-list" class="saved-list"></div>
     </details>
 
-    <div id="timemachine" class="timemachine">
-      <div class="tm-head">
-        <span>⏳ Time machine</span>
-        <button type="button" id="tm-play" title="Sweep through deep time">▶</button>
-      </div>
-      <input id="tm-range" type="range" min="0" max="750" step="1" value="100" />
-      <div class="tm-foot">
-        <span id="tm-label" class="tm-label">— Ma</span>
-        <select id="tm-band" title="Time window width">
-          <option value="5">± 5 Ma</option>
-          <option value="10" selected>± 10 Ma</option>
-          <option value="25">± 25 Ma</option>
-          <option value="50">± 50 Ma</option>
-        </select>
-      </div>
-      <small>Drag through deep time, or press ▶ to sweep. Tick “ancient Earth” to watch the continents move with it.</small>
-    </div>
-
     <details id="stats-wrap" class="stats adv">
       <summary>📊 Diversity of these results</summary>
       <div id="stats-body" class="stats-body"><p class="muted-note">Run a search to see a breakdown by period, country and formation.</p></div>
@@ -197,12 +176,26 @@
 
   <button id="panel-toggle" title="Show/hide panel">☰</button>
 
-  <!-- ===== Geologic timescale (top) — drill-down period picker =====
-       Collapsed to a single line showing the current pick; hover to open the
-       full stack. Selecting a period reveals its epochs below, an epoch its
-       ages — each row zoomed to fill the width. -->
-  <div id="timescale" class="tscale hidden" aria-label="Geologic timescale — pick a time interval to filter the map">
+  <!-- ===== Geologic timescale (top) — drill-down picker + time machine =====
+       A scrubber strip (always visible) sits above the interval summary; the
+       summary collapses to one line and opens the full drill-down stack on
+       hover. Selecting an eon/era reveals its periods, then epochs, then ages. -->
+  <div id="timescale" class="tscale hidden" aria-label="Geologic timescale — pick an interval or sweep through time">
     <div class="tscale-inner">
+      <!-- Time machine: a playhead along the Phanerozoic; drag it or press ▶. -->
+      <div class="tm-strip">
+        <button type="button" id="tm-play" class="tm-play" title="Sweep through deep time">▶</button>
+        <div id="tm-track" class="tm-track" title="Drag to travel through geological time">
+          <div id="tm-knob" class="tm-knob"></div>
+        </div>
+        <span id="tm-label" class="tm-label">— Ma</span>
+        <select id="tm-band" class="tm-band" title="Width of the time window">
+          <option value="5">±5</option>
+          <option value="10" selected>±10</option>
+          <option value="25">±25</option>
+          <option value="50">±50</option>
+        </select>
+      </div>
       <div id="ts-summary" class="ts-summary"></div>
       <div id="ts-stack" class="ts-stack"></div>
     </div>

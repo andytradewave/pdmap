@@ -317,19 +317,34 @@ button:hover { filter: brightness(1.08); }
 .ti-ivl { font-size: 11px; color: var(--text); margin-top: 3px; }
 .taxon-info .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 
-/* ===== Time machine ===== */
-.timemachine { margin: 14px 0 4px; border-top: 1px solid var(--border); padding-top: 12px; display: flex; flex-direction: column; gap: 8px; }
-.tm-head { display: flex; align-items: center; justify-content: space-between; }
-.tm-head span { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
-#tm-play {
-  width: 34px; height: 30px; border-radius: 8px; font-size: 13px; padding: 0;
-  background: var(--accent); color: #04121c;
+/* ===== Time machine (scrubber strip inside the top timescale) ===== */
+.tm-strip {
+  display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 8px;
+  border-bottom: 1px solid var(--border); background: var(--panel-solid);
 }
-#tm-play.on { background: var(--accent-2); }
-#tm-range { width: 100%; accent-color: var(--accent-2); margin: 0; }
-.tm-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.tm-label { font-size: 13px; font-weight: 600; color: var(--accent-2); font-variant-numeric: tabular-nums; }
-#tm-band { background: #0c1018; border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 5px 8px; font-size: 12px; }
+.tm-play {
+  flex: 0 0 auto; width: 28px; height: 22px; border-radius: 6px; padding: 0;
+  background: var(--accent); color: #04121c; border: none; font-size: 11px; cursor: pointer;
+}
+.tm-play.on { background: var(--accent-2); }
+.tm-track {
+  position: relative; flex: 1; min-width: 0; height: 14px; border-radius: 7px;
+  border: 1px solid #0006; cursor: pointer; touch-action: none;
+  background: #222; /* replaced with the period rainbow by JS */
+}
+.tm-knob {
+  position: absolute; top: -3px; bottom: -3px; left: 0; width: 3px;
+  transform: translateX(-50%); border-radius: 2px; background: var(--text);
+  box-shadow: 0 0 0 1px #000a, 0 0 6px #000b; pointer-events: none;
+}
+.tm-label {
+  flex: 0 0 auto; font-size: 11px; font-weight: 600; color: var(--accent-2);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.tm-band {
+  flex: 0 0 auto; background: #0c1018; border: 1px solid var(--border);
+  color: var(--text); border-radius: 6px; padding: 2px 4px; font-size: 11px;
+}
 
 /* ===== Stats / diversity ===== */
 .stats-body { margin-top: 8px; }
@@ -366,7 +381,8 @@ button:hover { filter: brightness(1.08); }
 
 /* ===== Geologic timescale (top, drill-down) =====
    Pinned to the top of the page. A single summary line is shown by default;
-   hovering opens the full proportional stack (periods ▸ epochs ▸ ages). */
+   it opens the full proportional stack on hover (driven by JS adding `.open`,
+   with a close delay, so the box never momentarily collapses and flickers). */
 .tscale {
   position: fixed; top: 12px; left: 360px; right: 16px; z-index: 16;
   display: flex; align-items: flex-start; gap: 8px; pointer-events: none;
@@ -381,16 +397,20 @@ button:hover { filter: brightness(1.08); }
   box-shadow: 0 8px 24px #0009;
 }
 
-/* Collapsed summary line — always visible, hidden once the stack opens. */
-.ts-summary { display: flex; height: 34px; cursor: pointer; }
-.tscale:hover .ts-summary { display: none; }
+/* Collapsed summary line — collapses by height (not display:none) when open, so
+   the inner box keeps a stable size through the transition and never flickers. */
+.ts-summary {
+  display: flex; height: 34px; overflow: hidden; cursor: pointer;
+  transition: height 0.25s ease, opacity 0.2s ease;
+}
+.tscale.open .ts-summary { height: 0; opacity: 0; }
 
-/* The full drill-down stack — collapsed to nothing until hover. */
+/* The full drill-down stack — collapsed to nothing until open. */
 .ts-stack {
   max-height: 0; opacity: 0; overflow: hidden;
   transition: max-height 0.28s ease, opacity 0.2s ease;
 }
-.tscale:hover .ts-stack { max-height: 70vh; opacity: 1; }
+.tscale.open .ts-stack { max-height: 70vh; opacity: 1; }
 
 .ts-row { display: flex; height: 30px; border-top: 1px solid #0006; }
 .ts-cap {
@@ -410,9 +430,13 @@ button:hover { filter: brightness(1.08); }
 }
 .ts-seg:last-child { border-right: none; }
 .ts-seg:hover { filter: brightness(1.12); }
+/* Selected interval (deepest pick) — strongest outline. */
 .ts-seg.on { box-shadow: inset 0 0 0 2px var(--text), inset 0 0 0 4px #04121c; z-index: 1; }
-/* In-path ancestor of the current pick (e.g. the era whose periods are open). */
-.ts-seg.active { box-shadow: inset 0 0 0 2px #ffffffaa; }
+/* In-path ancestor of the pick (the selected level at each coarser row). */
+.ts-seg.active { box-shadow: inset 0 0 0 2px #ffffffcc; z-index: 1; }
+/* Everything off the selected lineage is dulled so the chosen path stands out. */
+.ts-seg.dim { filter: brightness(0.5) saturate(0.7); }
+.ts-seg.dim:hover { filter: brightness(0.95) saturate(0.9); }
 .ts-seg.none {
   flex: 1; cursor: default; color: var(--muted); font-weight: 600;
   background: var(--panel-solid); justify-content: flex-start; padding: 0 12px;
@@ -469,8 +493,12 @@ button:hover { filter: brightness(1.08); }
   .suggest .pick { opacity: 1; }
   .tm-set { opacity: 1; }
 
-  /* The timescale bar would collide with the bottom sheet + toggle. */
-  .tscale { display: none !important; }
+  /* The timescale bar now holds the only interval picker + the time machine, so
+     keep it on phones — full width at the top (the panel is a bottom sheet, so
+     the top is free). Tap the summary to open the drill-down (no hover). */
+  .tscale { left: 8px; right: 8px; top: 8px; }
+  .tscale.detail-open { right: 8px; }
+  .ts-cap { flex-basis: 84px; }
 
   /* Bigger touch targets */
   .fld input[type="text"], .fld input[type="number"], .fld select { padding: 11px 12px; }

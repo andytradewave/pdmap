@@ -253,10 +253,9 @@ let selectedInterval = "";
 let selectedRegion = "";          // PBDB cc code (continent or country); "" = whole world
 let intervalRoots = [];           // top of the timescale tree (the eons)
 let intById = new Map();          // interval id -> node
-const expandedInts = new Set();   // ids of expanded tree nodes
 
-/* Wire each interval to its parent so the picker can show a drill-down tree
- * (eon ▸ era ▸ period ▸ epoch ▸ age). */
+/* Wire each interval to its parent so the top timescale can drill down a branch
+ * (eon ▸ era ▸ period ▸ epoch ▸ age) and walk ancestry for tooltips/highlights. */
 function buildIntervalTree() {
   intById = new Map(INTERVALS.filter((it) => it.id != null).map((it) => [it.id, it]));
   INTERVALS.forEach((it) => (it.children = []));
@@ -270,14 +269,7 @@ function buildIntervalTree() {
   const bySort = (a, b) => a.min - b.min || a.max - b.max;
   intervalRoots.sort(bySort);
   INTERVALS.forEach((it) => it.children.sort(bySort));
-  // Restore the branches expanded last session, else open to period level so the
-  // common picks are visible by default.
-  expandedInts.clear();
-  const saved = loadSet(INT_STORE);
-  if (saved.size) saved.forEach((id) => expandedInts.add(id));
-  else INTERVALS.forEach((it) => { if (it.type === "eon" || it.type === "era") expandedInts.add(it.id); });
 }
-const INT_STORE = "pdmap.int.exp";
 buildIntervalTree();
 
 const fmtMa = (v) => v == null ? "?" :
@@ -302,6 +294,7 @@ buildLegend(); // draw the offline fallback legend immediately
 const intByName = (name) => INTERVALS.find((x) => x.name === name);
 const DEPTH = { eon: 0, era: 1, period: 2, epoch: 3, age: 4 };
 const PRECAMBRIAN_EON_FLEX = 60; // fixed (compressed) width per Precambrian eon
+const TM_MAX = 541;              // time-machine scrubber spans the Phanerozoic (Ma)
 
 /* Walk a node up to its ancestor of the given level (or itself if it matches). */
 function ancestorOfType(node, type) {
@@ -325,13 +318,16 @@ function precambrianEons() {
 }
 
 /* One proportional, clickable cell. `flex` overrides the duration-based width
- * (used to compress the Precambrian eons). `active` names get an in-path marker
- * (ancestors of the current pick); an exact match gets the stronger selected
- * outline. */
-function tsSegHtml(node, flex, active) {
+ * (used to compress the Precambrian eons). Cells on the selected lineage are
+ * highlighted — the deepest pick strongest (`on`), its ancestors marked
+ * (`active`). `dimOthers` dulls the siblings of a chosen cell so the selected
+ * one stands out; rows with nothing chosen yet (the frontier) stay bright. */
+function tsSegHtml(node, flex, active, dimOthers) {
   const f = flex != null ? flex : Math.max(node.max - node.min, 0.0001);
+  const onPath = active && active.has(node.name);
   const cls = node.name === selectedInterval ? " on"
-    : (active && active.has(node.name) ? " active" : "");
+    : (onPath ? " active"
+    : (dimOthers ? " dim" : ""));
   const col = node.color ? bandColor(node) : "#9a8aa0";
   return `<button type="button" class="ts-seg${cls}" data-val="${esc(node.name)}"
     style="flex:${f} ${f} 0;background:${col}"
@@ -345,11 +341,21 @@ function tsRowHtml(label, inner) {
     <div class="ts-bar">${inner}</div></div>`;
 }
 
-/* The collapsed line: the current pick as a single coloured cell, or a prompt. */
+/* The collapsed line: the current pick as a single coloured cell, the active
+ * custom time-machine window, or a prompt. */
 function tsSummaryHtml() {
   const it = selectedInterval ? intByName(selectedInterval) : null;
-  if (!it) return `<div class="ts-seg none">
-    <span class="ts-seg-lbl">All time — hover to choose an interval ▾</span></div>`;
+  if (!it) {
+    // A custom age range (time machine, custom range, ⏳ icons) overrides any
+    // interval, so surface it here rather than a bare "All time".
+    const mx = $("f-maxma").value, mn = $("f-minma").value;
+    if (mx || mn) {
+      const b = bandFor((+mx + +mn) / 2);
+      return `<div class="ts-seg none"><span class="ts-seg-lbl">⏳ ${fmtMa(+mx)}–${fmtMa(+mn)} Ma${b ? " · " + esc(b.name) : ""} — custom window ▾</span></div>`;
+    }
+    return `<div class="ts-seg none">
+      <span class="ts-seg-lbl">All time — hover to choose an interval ▾</span></div>`;
+  }
   const col = it.color ? bandColor(it) : "#9a8aa0";
   return `<button type="button" class="ts-seg on" data-val="${esc(it.name)}"
     style="background:${col}" title="${esc(intervalPath(it.name))}">
@@ -379,15 +385,52 @@ function buildTopScale() {
   if (!host) return;
   host.classList.remove("hidden");
   if (!topScaleWired) {
-    // One delegated handler for every cell, whether in the summary or the stack.
+    // One delegated handler for every cell. A tap on the collapsed summary opens
+    // the stack (touch devices have no hover); a tap on a cell picks it.
     host.addEventListener("click", (e) => {
       const seg = e.target.closest(".ts-seg");
-      if (seg && seg.dataset.val != null) pickInterval(seg.dataset.val);
+      if (!seg) return;
+      if (seg.closest("#ts-summary")) { host.classList.toggle("open"); return; }
+      if (seg.dataset.val != null) pickInterval(seg.dataset.val);
     });
     $("ts-clear").addEventListener("click", () => { if (selectedInterval) pickInterval(""); });
+    // Open the stack on hover, close on leave with a short delay. The delay gives
+    // hysteresis so a cursor resting near the bottom edge can't rapidly toggle
+    // the bar open/closed (the old pure-:hover version flickered there).
+    let closeTimer = null;
+    const open = () => { clearTimeout(closeTimer); host.classList.add("open"); };
+    const close = () => { clearTimeout(closeTimer); closeTimer = setTimeout(() => host.classList.remove("open"), 160); };
+    // mouseenter/leave don't fire on the pointer-events:none container, so bind to
+    // the interactive children (the panel and the clear button).
+    [host.querySelector(".tscale-inner"), $("ts-clear")].forEach((el) => {
+      el.addEventListener("mouseenter", open);
+      el.addEventListener("mouseleave", close);
+    });
+    // On touch, a tap outside the bar closes it (hover handles this on desktop).
+    document.addEventListener("click", (e) => { if (!e.target.closest("#timescale")) host.classList.remove("open"); });
     topScaleWired = true;
   }
+  tmPaintRainbow(); // keep the scrubber's period colours in sync (cb mode, live data)
   syncTopScale();
+}
+
+/* Paint the time-machine track with the Phanerozoic period rainbow (oldest on
+ * the left, matching the drill rows), so the playhead reads against real periods.
+ * Uses a hoisted declaration so buildTopScale can call it before the time-machine
+ * block below runs. */
+function tmPaintRainbow() {
+  const track = $("tm-track");
+  if (!track) return;
+  const ps = BANDS.filter((b) => b.max <= TM_MAX && b.max - b.min > 0).sort((a, b) => b.max - a.max);
+  if (!ps.length) return;
+  const stops = [];
+  for (const p of ps) {
+    const l = Math.max(0, (TM_MAX - p.max) / TM_MAX * 100);
+    const r = Math.min(100, (TM_MAX - p.min) / TM_MAX * 100);
+    const c = bandColor(p);
+    stops.push(`${c} ${l.toFixed(2)}%`, `${c} ${r.toFixed(2)}%`);
+  }
+  track.style.background = `linear-gradient(to right, ${stops.join(",")})`;
 }
 
 /* Re-render the header + drill rows + summary from the current selection. Cheap;
@@ -402,12 +445,18 @@ function syncTopScale() {
   const active = new Set();
   for (let it = sel; it; it = it.parent != null ? intById.get(it.parent) : null) active.add(it.name);
 
+  // A row dims its off-path cells only when it actually contains the chosen
+  // interval at that level — the deepest (frontier) row, whose options aren't
+  // chosen yet, stays fully lit.
+  const dimRow = (nodes) => nodes.some((n) => active.has(n.name));
+
   const eons = precambrianEons();
   const eras = scaleOfType("era");
   // Header: a single eon/era row. Precambrian eons are compressed.
+  const headerDim = dimRow([...eons, ...eras]);
   let html = tsRowHtml("Eon · Era",
-    eons.map((n) => tsSegHtml(n, PRECAMBRIAN_EON_FLEX, active)).join("") +
-    eras.map((n) => tsSegHtml(n, null, active)).join(""));
+    eons.map((n) => tsSegHtml(n, PRECAMBRIAN_EON_FLEX, active, headerDim)).join("") +
+    eras.map((n) => tsSegHtml(n, null, active, headerDim)).join(""));
 
   // Drill rows: the selected eon/era's periods, then its epochs, then its ages —
   // only the chosen branch, each row zoomed to fill the width.
@@ -419,7 +468,8 @@ function syncTopScale() {
         const kids = [...node.children].sort((a, b) => b.max - a.max);
         const lvl = kids[0].type;
         const label = (lvl[0].toUpperCase() + lvl.slice(1)) + "s · " + node.name;
-        html += tsRowHtml(label, kids.map((n) => tsSegHtml(n, null, active)).join(""));
+        const rd = dimRow(kids);
+        html += tsRowHtml(label, kids.map((n) => tsSegHtml(n, null, active, rd)).join(""));
       }
     }
   }
@@ -454,166 +504,31 @@ function recolorPoints() {
   globe.pointColor(globe.pointColor()); // re-trigger the colour accessor
 }
 
-/* ---- searchable interval picker (reuses the .suggest combobox styling) ---- */
-const intInput = $("f-interval");
-const intBox = $("interval-suggest");
-let intItems = [];
-let intActive = -1;
+/* ---- interval selection (driven by the top timescale strip) ----
+ * The timescale at the top of the page is now the only interval picker; these
+ * helpers hold the shared selection state it (and saved searches, samples, the
+ * time machine) read and write. */
 
-const intRow = (it) =>
-  `<div class="opt" data-val="${esc(it.name)}">
-     <span class="nm">${esc(it.name)}</span>
-     <span class="ct">${fmtMa(it.max)}–${fmtMa(it.min)} Ma</span>
-     <span class="lvl">${esc(it.type)}</span>
-   </div>`;
-
-function intGrouped(list) {
-  // Group rows by level in geological order, with a heading per level.
-  return LEVELS.map((lvl) => {
-    const rows = list.filter((it) => it.type === lvl);
-    if (!rows.length) return "";
-    const label = lvl === "epoch" ? "Epochs (sub-periods)" :
-      lvl === "age" ? "Ages / stages" : lvl[0].toUpperCase() + lvl.slice(1) + "s";
-    return `<div class="grp">${label}</div>` + rows.map(intRow).join("");
-  }).join("");
-}
-
-/* Recursive tree rows for browsing the timescale by drilling down branches. */
-function intTreeHtml(nodes, depth) {
-  return nodes.map((n) => {
-    const has = n.children && n.children.length;
-    const open = expandedInts.has(n.id);
-    const tw = has ? `<span class="tw">${open ? "▾" : "▸"}</span>` : `<span class="tw none"></span>`;
-    const sel = n.name === selectedInterval ? " sel" : "";
-    let html = `<div class="opt tnode${sel}" data-val="${esc(n.name)}" data-int="${esc(n.id)}" data-exp="${has ? 1 : 0}" style="padding-left:${6 + depth * 16}px">
-      ${tw}<span class="swatch" style="background:${n.color}"></span>
-      <span class="nm">${esc(n.name)}</span>
-      <span class="ct">${fmtMa(n.max)}–${fmtMa(n.min)}</span>
-      <span class="lvl">${esc(n.type)}</span>${PICK_BTN(n.name)}</div>`;
-    if (has && open) html += intTreeHtml(n.children, depth + 1);
-    return html;
-  }).join("");
-}
-
-/* Open every ancestor of the named interval so a prior choice is visible. */
-function expandAncestors(name) {
-  let it = INTERVALS.find((x) => x.name === name);
-  while (it && it.parent != null) {
-    expandedInts.add(it.parent);
-    it = intById.get(it.parent);
-  }
-}
-
-function intSync() {
-  intItems = [...intBox.querySelectorAll(".opt")].map((el) => el.dataset.val);
-  intActive = -1;
-}
-function intShow() { intBox.classList.remove("hidden"); }
-function intHide() { intBox.classList.add("hidden"); intActive = -1; }
-
-const INT_HINT = `<div class="tree-hint">Click <b>▸</b> to open a branch · click a name to choose it</div>`;
-const ANY_ROW = `<div class="opt tnode" data-val=""><span class="tw none"></span>
-   <span class="nm">Any time</span><span class="lvl">all ages</span></div>`;
-
-/* The browsable tree. scrollToSel centres the current pick (used when re-opening
- * the field); leave it off when just toggling a branch so the view stays put. */
-function intRenderTree(scrollToSel) {
-  if (selectedInterval) expandAncestors(selectedInterval);
-  intBox.innerHTML = INT_HINT + ANY_ROW + intTreeHtml(intervalRoots, 0);
-  intSync();
-  intShow();
-  if (scrollToSel) {
-    const sel = intBox.querySelector(".opt.sel");
-    if (sel) sel.scrollIntoView({ block: "center" });
-  }
-}
-
-/* Flat, filtered results while the user is typing. */
-function intRenderSearch(q) {
-  const ql = q.trim().toLowerCase();
-  const list = INTERVALS.filter((it) => it.name.toLowerCase().includes(ql));
-  intBox.innerHTML = list.length ? intGrouped(list)
-    : `<div class="grp">No interval matches “${esc(q)}”</div>`;
-  intSync();
-  intShow();
-}
-
-function intHint() {
-  const it = INTERVALS.find((x) => x.name === selectedInterval);
-  const el = $("interval-hint");
-  el.textContent = it
-    ? `${it.name} — ${it.type}, ${fmtMa(it.max)}–${fmtMa(it.min)} million years ago.`
-    : "Any eon, era, period, epoch or age. Start typing to search, or leave blank for all of time.";
-}
-
+/* Full ancestry of a named interval, e.g. "Phanerozoic › Mesozoic › Cretaceous",
+ * used for the summary tooltip. */
 function intervalPath(name) {
   let it = INTERVALS.find((x) => x.name === name);
   const names = [];
   while (it) { names.unshift(it.name); it = it.parent != null ? intById.get(it.parent) : null; }
   return names.join(" › ");
 }
+
+/* Choose an interval (or clear it with ""), then re-run the search. The custom
+ * range / time machine write into f-maxma/f-minma, which override any interval in
+ * search(); picking an interval is an explicit choice to use it, so clear that
+ * range and halt any running sweep. The top timescale reflects the new pick. */
 function pickInterval(name) {
   selectedInterval = name;
-  intInput.value = name;
-  intInput.title = name ? intervalPath(name) : ""; // full-path tooltip
-  // The time machine (and the custom range) write into f-maxma/f-minma, which
-  // override any interval in search(). Picking an interval is an explicit choice
-  // to use it, so clear that range — otherwise the period stays stuck on whatever
-  // the time machine last set. Also halt any running sweep.
   $("f-maxma").value = ""; $("f-minma").value = "";
   if (typeof tmStop === "function") tmStop();
-  intHide();
-  intHint();
+  syncTopScale();
   search();
 }
-function intSetActive(i) {
-  const opts = intBox.querySelectorAll(".opt");
-  if (!opts.length) return;
-  intActive = (i + opts.length) % opts.length;
-  opts.forEach((el, n) => el.classList.toggle("active", n === intActive));
-  opts[intActive].scrollIntoView({ block: "nearest" });
-}
-
-intInput.addEventListener("input", () => {
-  // Typing invalidates a prior pick until they choose a real interval again.
-  selectedInterval = "";
-  const q = intInput.value.trim();
-  q ? intRenderSearch(q) : intRenderTree(false);
-});
-// Re-opening the field always shows the tree, scrolled to the current pick, and
-// closes any other open picker. A click reopens it after a pick, too.
-intInput.addEventListener("focus", () => { closeOtherPickers(intHide); intRenderTree(true); });
-intInput.addEventListener("click", () => {
-  if (intBox.classList.contains("hidden")) { closeOtherPickers(intHide); intRenderTree(true); }
-});
-intInput.addEventListener("keydown", (e) => {
-  if (intBox.classList.contains("hidden")) return;
-  if (e.key === "ArrowDown") { e.preventDefault(); intSetActive(intActive + 1); }
-  else if (e.key === "ArrowUp") { e.preventDefault(); intSetActive(intActive - 1); }
-  else if (e.key === "Enter" && intActive >= 0) { e.preventDefault(); pickInterval(intItems[intActive]); }
-  else if (e.key === "Escape") { intHide(); }
-});
-intBox.addEventListener("mousedown", (e) => {
-  e.stopPropagation(); // see note in the taxon picker — avoid a false outside-click on re-render
-  const pick = e.target.closest("[data-pick]");
-  if (pick) { e.preventDefault(); pickInterval(pick.closest(".opt").dataset.val); return; }
-  const row = e.target.closest(".opt");
-  if (!row) return;
-  e.preventDefault();
-  if (row.dataset.exp === "1" && row.dataset.int) { // click a branch row → expand/collapse
-    const id = row.dataset.int;
-    expandedInts.has(id) ? expandedInts.delete(id) : expandedInts.add(id);
-    saveSet(INT_STORE, expandedInts);
-    intRenderTree(false);
-    const r2 = intBox.querySelector(`.opt[data-int="${CSS.escape(id)}"]`);
-    if (r2) r2.scrollIntoView({ block: "nearest" }); // keep it where it was
-    return;
-  }
-  pickInterval(row.dataset.val); // leaf / "Any time" → select
-});
-document.addEventListener("mousedown", (e) => {
-  if (!e.target.closest("#f-interval") && !e.target.closest("#interval-suggest")) intHide();
-});
 
 /* --------------------------------------------- Approximate viewport bbox --- */
 function currentViewBbox() {
@@ -1828,7 +1743,6 @@ const excludePicker = createTaxonPicker($("f-exclude"), $("exclude-suggest"), {
   onPick: addExclude,
 });
 renderExcludeChips();
-pickerHides.push(intHide); // so opening the taxon/exclude tree also closes the interval tree
 
 /* =========================================================================
  * Region picker — a tree (continent ▸ its countries) with type-to-search,
@@ -1957,10 +1871,10 @@ $("search-form").addEventListener("submit", (e) => {
 $("btn-clear").addEventListener("click", () => {
   $("f-taxon").value = ""; $("f-exclude").value = ""; $("f-formation").value = "";
   excludes = []; renderExcludeChips();
-  $("f-interval").value = ""; selectedInterval = "";
+  selectedInterval = "";
   $("f-maxma").value = ""; $("f-minma").value = ""; $("f-env").value = "";
   setRegion("");
-  $("f-view").checked = false; intHint();
+  $("f-view").checked = false;
   $("btn-download").disabled = true; $("f-export").disabled = true;
   legendSel = null; buildLegend();
   if (typeof tmStop === "function") tmStop();
@@ -1968,6 +1882,7 @@ $("btn-clear").addEventListener("click", () => {
   currentRecs = [];
   globe.pointsData([]); globe.hexBinPointsData([]);
   setStatus("");
+  syncTopScale(); // reflect the cleared interval on the top timescale
   writeHash();
 });
 $("btn-download").addEventListener("click", exportResults);
@@ -2030,8 +1945,6 @@ function applyState(s) {
   excludes = s.exclude ? s.exclude.split("^").filter(Boolean) : [];
   renderExcludeChips();
   selectedInterval = s.interval || "";
-  $("f-interval").value = selectedInterval;
-  $("f-interval").title = selectedInterval ? intervalPath(selectedInterval) : "";
   $("f-maxma").value = s.maxma || "";
   $("f-minma").value = s.minma || "";
   if (s.unit) $("f-unit").value = s.unit;
@@ -2044,7 +1957,7 @@ function applyState(s) {
   if (s.base) { $("f-base").value = s.base; if (!usePaleo) setBaseLayer(s.base); }
   cbSafe = !!+s.cb; $("f-cb").checked = cbSafe;
   $("f-density").checked = !!+s.density;
-  intHint();
+  syncTopScale(); // reflect the restored interval on the top timescale
 }
 function writeHash() {
   const s = getState();
@@ -2198,24 +2111,29 @@ $("saved-list").addEventListener("click", (e) => {
 /* =========================================================================
  * Time machine — sweep through deep time; the continents follow in paleo mode.
  * ========================================================================= */
-const tmRange = $("tm-range"), tmBand = $("tm-band"), tmLabel = $("tm-label"), tmPlay = $("tm-play");
-let tmPlaying = false, tmToken = 0, tmTimer = null;
-const tmAge = () => +tmRange.value;
-function tmUpdateLabel() {
-  const b = bandFor(tmAge());
-  tmLabel.textContent = `${tmAge()} Ma${b ? " · " + b.name : ""}`;
+const tmTrack = $("tm-track"), tmKnob = $("tm-knob"), tmBand = $("tm-band"),
+  tmLabel = $("tm-label"), tmPlay = $("tm-play");
+let tmPlaying = false, tmToken = 0, tmTimer = null, tmDragging = false;
+let tmAgeMa = 100; // the playhead's current age, in Ma
+const tmAge = () => tmAgeMa;
+
+/* Move the playhead to an age and refresh the knob + label (oldest on the left,
+ * matching the rainbow: age TM_MAX → 0%, age 0 → 100%). */
+function tmSetAge(ma) {
+  tmAgeMa = Math.min(TM_MAX, Math.max(0, Math.round(ma)));
+  tmKnob.style.left = ((TM_MAX - tmAgeMa) / TM_MAX * 100).toFixed(2) + "%";
+  const b = bandFor(tmAgeMa);
+  tmLabel.textContent = `${tmAgeMa} Ma${b ? " · " + b.name : ""}`;
 }
 async function tmApply() {
   const age = tmAge(), half = +tmBand.value;
   $("f-unit").value = "Ma";
   $("f-maxma").value = Math.round(age + half);
   $("f-minma").value = Math.max(0, Math.round(age - half));
-  selectedInterval = ""; $("f-interval").value = ""; intHint();
-  tmUpdateLabel();
-  await search();
+  selectedInterval = ""; // a custom range overrides any interval pick
+  await search();         // re-runs syncTopScale, so the summary shows the window
 }
 function tmOnInput() {
-  tmUpdateLabel();
   clearTimeout(tmTimer);
   tmTimer = setTimeout(tmApply, 250); // debounce while dragging
 }
@@ -2224,34 +2142,53 @@ async function tmPlayLoop() {
   const my = ++tmToken;
   tmPlaying = true; tmPlay.textContent = "⏸"; tmPlay.classList.add("on");
   if (!usePaleo) { usePaleo = true; $("f-paleo").checked = true; } // watch continents move
-  if (tmAge() < 20) tmRange.value = tmRange.max;                   // start from the deep past
+  if (tmAge() < 20) tmSetAge(TM_MAX);                              // start from the deep past
   while (tmPlaying && my === tmToken && tmAge() > 0) {
     await tmApply();
     if (my !== tmToken) return;
-    tmRange.value = Math.max(0, tmAge() - +tmBand.value);
+    tmSetAge(Math.max(0, tmAge() - +tmBand.value));
     await new Promise((r) => setTimeout(r, 450));
   }
   if (my === tmToken) { await tmApply(); tmStop(); }
 }
+
+// Drag (or click) the track to scrub. Pointer capture keeps the drag alive even
+// when the cursor leaves the thin track vertically.
+const tmAgeFromX = (clientX) => {
+  const r = tmTrack.getBoundingClientRect();
+  const frac = Math.min(1, Math.max(0, (clientX - r.left) / r.width));
+  return TM_MAX * (1 - frac);
+};
+tmTrack.addEventListener("pointerdown", (e) => {
+  if (tmPlaying) tmStop();
+  tmDragging = true;
+  tmTrack.setPointerCapture(e.pointerId);
+  tmSetAge(tmAgeFromX(e.clientX)); tmOnInput();
+});
+tmTrack.addEventListener("pointermove", (e) => {
+  if (!tmDragging) return;
+  tmSetAge(tmAgeFromX(e.clientX)); tmOnInput();
+});
+const tmEndDrag = (e) => { if (tmDragging) { tmDragging = false; try { tmTrack.releasePointerCapture(e.pointerId); } catch (_) {} } };
+tmTrack.addEventListener("pointerup", tmEndDrag);
+tmTrack.addEventListener("pointercancel", tmEndDrag);
 tmPlay.addEventListener("click", () => (tmPlaying ? tmStop() : tmPlayLoop()));
-tmRange.addEventListener("input", () => { if (tmPlaying) tmStop(); tmOnInput(); });
-tmBand.addEventListener("change", tmUpdateLabel);
-tmUpdateLabel();
+tmBand.addEventListener("change", () => tmSetAge(tmAgeMa));
+tmSetAge(tmAgeMa);
 
 /* Point the time machine at a specific age span (from a ⏳ icon next to any
- * displayed date range): set the custom range, move the slider, and re-search. */
+ * displayed date range): set the custom range, move the playhead, and re-search. */
 function applyTimeRange(maxMa, minMa) {
   if (tmPlaying) tmStop();
   $("f-unit").value = "Ma";
   $("f-maxma").value = maxMa;
   $("f-minma").value = minMa;
-  selectedInterval = ""; $("f-interval").value = ""; $("f-interval").title = "";
-  tmRange.value = Math.min(+tmRange.max, Math.max(0, Math.round((maxMa + minMa) / 2)));
+  selectedInterval = ""; // a custom range overrides any interval pick
+  tmSetAge((maxMa + minMa) / 2);
   // Snap the window selector to the nearest preset for a tidy follow-on ▶ sweep.
   const half = (maxMa - minMa) / 2;
   const presets = [...tmBand.options].map((o) => +o.value);
   tmBand.value = String(presets.reduce((a, b) => Math.abs(b - half) < Math.abs(a - half) ? b : a));
-  tmUpdateLabel(); intHint();
   flash(`⏳ Time set to ${fmtMa(maxMa)}–${fmtMa(minMa)} Ma`);
   search();
 }
@@ -2342,12 +2279,9 @@ renderSaved();
     $("f-taxon").value = "Dinosauria"; currentTaxon = "Dinosauria";
     taxonLineage("Dinosauria").then((p) => { taxonInput.title = p || "Dinosauria"; });
     selectedInterval = "Cretaceous";
-    intInput.value = "Cretaceous";
-    intInput.title = intervalPath("Cretaceous");
-    intHint();
   }
   if (usePaleo) updatePaleoGlobe();
-  search();
+  search(); // re-runs syncTopScale, reflecting the selected interval up top
 })();
 
 /* On phones, start with the panel tucked away so the globe is the hero;
