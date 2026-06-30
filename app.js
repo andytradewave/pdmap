@@ -1075,34 +1075,42 @@ globe.polygonGeoJsonGeometry((d) => d.geometry)
   .polygonStrokeColor(() => "#2b3220")
   .polygonsTransitionDuration(0);
 
-/* Plate-boundary overlay (ancient Earth) — tectonic plate outlines from the
- * GPlates topological model, drawn as lines for the reconstructed age. */
-globe.pathPointLat((p) => p[0]).pathPointLng((p) => p[1])
-  .pathColor(() => "rgba(255, 150, 70, 0.6)")
-  .pathStroke(0.9).pathDashLength(0.012).pathDashGap(0.008)
+/* Plate-boundary overlay — tectonic plate boundaries (ridges, trenches, faults)
+ * from the GPlates topological model, drawn as bright lines lifted just above the
+ * surface. Shows today's plates on the modern globe, or the reconstructed
+ * boundaries for the age in ancient-Earth mode. */
+globe.pathPointLat((p) => p[0]).pathPointLng((p) => p[1]).pathPointAlt(0.012)
+  .pathColor(() => "#ffd24a")
+  .pathStroke(1.6).pathDashLength(0.02).pathDashGap(0.012)
   .pathDashAnimateTime(0).pathTransitionDuration(0);
 
-const GPLATES_TOPO = "https://gws.gplates.org/topology/plate_polygons";
+const GPLATES_BOUNDS = "https://gws.gplates.org/topology/plate_boundaries";
 const TOPO_MODEL = "MERDITH2021"; // a full topological model (0–1000 Ma)
 const topoCache = new Map();
-// The topology service recomputes per age and can be slow or unavailable, so this
-// is strictly best-effort: snap to round ages (better cache hits), time out hard
-// so a slow response never blocks the globe, and don't cache failures (retry later).
+const geomToPaths = (g) => {
+  const out = [];
+  if (!g) return out;
+  const flip = (line) => line.map(([lng, lat]) => [lat, lng]);
+  if (g.type === "LineString") out.push(flip(g.coordinates));
+  else if (g.type === "MultiLineString") for (const l of g.coordinates) out.push(flip(l));
+  else if (g.type === "Polygon") for (const r of g.coordinates) out.push(flip(r));
+  else if (g.type === "MultiPolygon") for (const p of g.coordinates) for (const r of p) out.push(flip(r));
+  return out;
+};
+// The topology service recomputes per age and is often slow (several seconds), so
+// this is best-effort: snap to round ages (better cache hits), time out hard so a
+// slow response never blocks the globe, and don't cache failures (retry later).
 function fetchPlateBoundaries(age) {
   const key = Math.round(age / 10) * 10;
   if (topoCache.has(key)) return topoCache.get(key);
   const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), 8000);
-  const p = fetch(`${GPLATES_TOPO}?time=${key}&model=${TOPO_MODEL}`, { signal: ac.signal })
+  const timer = setTimeout(() => ac.abort(), 12000);
+  const p = fetch(`${GPLATES_BOUNDS}?time=${key}&model=${TOPO_MODEL}`, { signal: ac.signal })
     .then((r) => (r.ok ? r.json() : null))
     .then((d) => {
       if (!d || !d.features) return null;
       const paths = [];
-      for (const ft of d.features) {
-        const g = ft.geometry; if (!g) continue;
-        const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
-        for (const poly of polys) for (const ring of poly) paths.push(ring.map(([lng, lat]) => [lat, lng]));
-      }
+      for (const ft of d.features) paths.push(...geomToPaths(ft.geometry));
       return paths.length ? paths : null;
     })
     .catch(() => null)
@@ -1112,13 +1120,18 @@ function fetchPlateBoundaries(age) {
   return p;
 }
 const platesOn = () => $("f-plates") && $("f-plates").checked;
-let platesToken = 0;
+let platesReqKey = -1;
 async function updatePlateBoundaries() {
-  if (!usePaleo || !platesOn()) { globe.pathsData([]); return; }
-  const my = ++platesToken;
-  const paths = await fetchPlateBoundaries(Math.min(PALEO_MAX_MA, paleoAgeMa()));
-  if (my !== platesToken) return;
+  if (!platesOn()) { globe.pathsData([]); return; }
+  const age = usePaleo ? Math.min(PALEO_MAX_MA, paleoAgeMa()) : 0;
+  const key = Math.round(age / 10) * 10;
+  platesReqKey = key;
+  if (!topoCache.has(key)) flash(`Loading plate boundaries ~${fmtMa(age)} Ma…`);
+  const paths = await fetchPlateBoundaries(age);
+  // Apply unless the toggle was turned off or a *different* age was requested since.
+  if (!platesOn() || platesReqKey !== key) return;
   globe.pathsData(paths || []);
+  if (!paths) flash("Plate boundaries unavailable right now — try again in a moment.");
 }
 
 /* Event rings — impacts (☄) and large igneous provinces (🌋) within the selected
