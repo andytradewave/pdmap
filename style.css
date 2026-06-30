@@ -325,6 +325,56 @@ button:hover { filter: brightness(1.08); }
 }
 .sample:hover { border-color: var(--accent); color: var(--accent); filter: none; }
 
+/* ===== Search / Results tabs ===== */
+.tabs { display: flex; gap: 6px; margin: 10px 0 12px; }
+.tab {
+  flex: 1; background: transparent; border: none; border-bottom: 2px solid var(--border);
+  color: var(--muted); font-size: 13px; font-weight: 600; padding: 8px 0; cursor: pointer;
+}
+.tab:hover { color: var(--text); }
+.tab.on { color: var(--text); border-bottom-color: var(--accent); }
+.tabpane { display: none; }
+.tabpane.on { display: block; }
+#results-empty.hide { display: none; }
+
+/* Active-filter chips (the live query summary, above the tabs' content) */
+.filter-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
+.filter-chips:empty { display: none; }
+.fchip {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 11px;
+  background: rgba(76, 194, 255, 0.13); color: var(--accent);
+  border: 1px solid var(--border); border-radius: 999px; padding: 2px 4px 2px 9px;
+}
+.fchip .k { color: var(--muted); }
+.fchip button {
+  background: transparent; border: none; color: inherit; cursor: pointer;
+  padding: 0 3px; font-size: 13px; line-height: 1; opacity: 0.75;
+}
+.fchip button:hover { opacity: 1; }
+
+/* Advanced sub-group heading (custom age range) */
+.adv-sub { margin: 12px 0 6px; }
+.adv-sub-h { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+
+/* ===== Map & layers popover ===== */
+#layers-btn {
+  position: fixed; bottom: 16px; right: 16px; z-index: 18;
+  width: 46px; height: 46px; border-radius: 12px; padding: 0;
+  background: var(--panel-solid); color: var(--text); border: 1px solid var(--border);
+  font-size: 20px; box-shadow: 0 6px 20px #0009; cursor: pointer;
+}
+#layers-btn:hover { border-color: var(--accent); color: var(--accent); }
+#layers-btn.on { border-color: var(--accent); color: var(--accent); }
+.layers-pop {
+  position: fixed; bottom: 70px; right: 16px; z-index: 18;
+  width: 268px; max-width: calc(100vw - 32px); max-height: 72vh; overflow-y: auto;
+  background: var(--panel); backdrop-filter: blur(8px); border: 1px solid var(--border);
+  border-radius: 12px; padding: 14px; box-shadow: 0 12px 32px #000a;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.layers-pop.hidden { display: none; }
+.lp-head { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--muted); }
+
 /* ===== Export row ===== */
 .export-row select {
   flex: 1; min-width: 0; background: #0c1018; border: 1px solid var(--border);

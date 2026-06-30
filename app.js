@@ -228,6 +228,7 @@ let INTERVALS = PERIODS.map((p) => // sensible offline default
 let selectedInterval = "";
 let selectedRegion = "";          // PBDB cc code (continent or country); "" = whole world
 let usePaleo = false;             // ancient-Earth (paleo-coordinate) mode
+let excludes = [];                // taxa subtracted from the base taxon
 let intervalRoots = [];           // top of the timescale tree (the eons)
 let intById = new Map();          // interval id -> node
 
@@ -630,6 +631,7 @@ function syncTopScale() {
   $("ts-clear").classList.toggle("hidden", !selectedInterval);
   renderPaleoclimate();        // air & climate for the current time context
   if (typeof updateEventRings === "function") updateEventRings(); // impact/LIP rings track the span
+  if (typeof renderFilterChips === "function") renderFilterChips(); // keep the chip bar in sync
 }
 buildTopScale(); // draw from the built-in periods immediately; refined once the live scale loads
 
@@ -810,6 +812,7 @@ async function search() {
     if (!shown) setStatus("No localities matched. Try a broader taxon or age.", "err");
     $("btn-download").disabled = !shown;
     $("f-export").disabled = !shown;
+    $("results-empty").classList.toggle("hide", shown > 0); // drop the placeholder once there are results
   } catch (e) {
     setStatus("Error: " + e.message, "err");
   } finally {
@@ -2058,7 +2061,6 @@ const taxonPicker = createTaxonPicker(taxonInput, $("taxon-suggest"), {
 });
 
 /* "Exclude groups" field — multiple removable chips, same tree/search picker */
-let excludes = [];
 function renderExcludeChips() {
   const box = $("exclude-chips");
   box.innerHTML = excludes.map((n) =>
@@ -2202,7 +2204,7 @@ document.addEventListener("mousedown", (e) => {
 
 /* ----------------------------------------------------------------- Wire up --- */
 $("search-form").addEventListener("submit", (e) => {
-  e.preventDefault(); taxonPicker.hide(); excludePicker.hide(); search();
+  e.preventDefault(); taxonPicker.hide(); excludePicker.hide(); showTab("results"); search();
 });
 $("btn-clear").addEventListener("click", () => {
   $("f-taxon").value = ""; $("f-exclude").value = ""; $("f-formation").value = "";
@@ -2235,6 +2237,60 @@ $("detail").addEventListener("click", (e) => {
 });
 $("panel-toggle").addEventListener("click", () => $("panel").classList.remove("collapsed"));
 $("panel-close").addEventListener("click", () => $("panel").classList.add("collapsed"));
+
+/* ----- Search / Results tabs ----- */
+function showTab(name) {
+  document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("on", t.dataset.tab === name));
+  $("tab-search").classList.toggle("on", name === "search");
+  $("tab-results").classList.toggle("on", name === "results");
+}
+document.querySelector(".tabs").addEventListener("click", (e) => {
+  const t = e.target.closest(".tab"); if (t) showTab(t.dataset.tab);
+});
+
+/* ----- Map & layers popover (display options live off the globe now) ----- */
+const layersBtn = $("layers-btn"), layersPop = $("layers-pop");
+layersBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  const nowHidden = layersPop.classList.toggle("hidden");
+  layersBtn.classList.toggle("on", !nowHidden);
+});
+document.addEventListener("click", (e) => {
+  if (!layersPop.classList.contains("hidden") &&
+      !e.target.closest("#layers-pop") && !e.target.closest("#layers-btn")) {
+    layersPop.classList.add("hidden"); layersBtn.classList.remove("on");
+  }
+});
+
+/* ----- Active-filter chips: the live query as removable pills ----- */
+function renderFilterChips() {
+  const box = $("filter-chips"); if (!box) return;
+  const chips = [];
+  const taxon = $("f-taxon").value.trim();
+  if (taxon) chips.push({ k: "Taxon", v: taxon, clear: "taxon" });
+  for (const x of excludes) chips.push({ k: "Exclude", v: x, clear: "exclude:" + x });
+  const mx = $("f-maxma").value, mn = $("f-minma").value;
+  if (mx || mn) chips.push({ k: "Time", v: `${mx || "0"}–${mn || "0"} ${$("f-unit").value}`, clear: "range" });
+  else if (selectedInterval) chips.push({ k: "Time", v: selectedInterval, clear: "interval" });
+  if (selectedRegion) chips.push({ k: "Region", v: $("f-region").value || selectedRegion, clear: "region" });
+  const fm = $("f-formation").value.trim();
+  if (fm) chips.push({ k: "Formation", v: fm, clear: "formation" });
+  if ($("f-env").value) chips.push({ k: "Env", v: $("f-env").selectedOptions[0].text, clear: "env" });
+  box.innerHTML = chips.map((c) =>
+    `<span class="fchip"><span class="k">${esc(c.k)}:</span> ${esc(c.v)}<button type="button" aria-label="Remove" data-clear="${esc(c.clear)}">✕</button></span>`).join("");
+}
+$("filter-chips").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-clear]"); if (!b) return;
+  const c = b.dataset.clear;
+  if (c === "interval") { pickInterval(""); return; } // re-runs search itself
+  if (c === "taxon") { $("f-taxon").value = ""; currentTaxon = ""; updateTaxonInfo(""); }
+  else if (c.startsWith("exclude:")) { excludes = excludes.filter((x) => x !== c.slice(8)); renderExcludeChips(); }
+  else if (c === "range") { $("f-maxma").value = ""; $("f-minma").value = ""; }
+  else if (c === "region") { setRegion(""); }
+  else if (c === "formation") { $("f-formation").value = ""; }
+  else if (c === "env") { $("f-env").value = ""; }
+  search();
+});
 
 $("f-paleo").addEventListener("change", (e) => {
   usePaleo = e.target.checked;
@@ -2589,6 +2645,7 @@ $("samples").addEventListener("click", (e) => {
   applyState({ ...BLANK, limit: $("f-limit").value, paleo: usePaleo ? 1 : 0,
     base: $("f-base").value, cb: cbSafe ? 1 : 0, density: $("f-density").checked ? 1 : 0, ...s.state });
   if ($("f-taxon").value) taxonLineage($("f-taxon").value).then((p) => { taxonInput.title = p || ""; });
+  showTab("results");
   search();
 });
 buildSamples();

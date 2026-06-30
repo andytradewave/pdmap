@@ -29,91 +29,127 @@
     <header class="panel-head">
       <h1>PDMap <span>🦕</span></h1>
       <p class="sub">Fossil localities from the <a href="https://paleobiodb.org/" target="_blank" rel="noopener">Paleobiology Database</a></p>
-      <div id="samples" class="samples"></div>
     </header>
 
-    <form id="search-form" class="filters">
-      <label class="fld">
-        <span>Taxon name</span>
-        <div class="suggest-wrap">
-          <input id="f-taxon" type="text" placeholder="Type to search, or browse the tree…" autocomplete="off" />
-          <div id="taxon-suggest" class="suggest hidden"></div>
-        </div>
-        <small>Any rank — includes all sub-groups. Type to search, or click ▸ to drill down the tree of life.</small>
-      </label>
+    <div class="tabs" role="tablist">
+      <button type="button" class="tab on" data-tab="search" role="tab">Search</button>
+      <button type="button" class="tab" data-tab="results" role="tab">Results</button>
+    </div>
 
-      <label class="fld">
-        <span>Exclude groups</span>
-        <div id="exclude-chips" class="chips-in"></div>
-        <div class="suggest-wrap">
-          <input id="f-exclude" type="text" placeholder="Type or browse to add…" autocomplete="off" />
-          <div id="exclude-suggest" class="suggest hidden"></div>
-        </div>
-        <small>Subtract sub-groups from the taxon above (e.g. dinosaurs without birds).</small>
-      </label>
+    <div id="filter-chips" class="filter-chips" aria-label="Active filters"></div>
 
-      <label class="fld">
-        <span>Formation</span>
-        <input id="f-formation" type="text" placeholder="e.g. Morrison, Hell Creek" autocomplete="off" />
-        <small>Restrict to a named geological formation.</small>
-      </label>
+    <!-- ===== Search tab: build the query ===== -->
+    <div id="tab-search" class="tabpane on" role="tabpanel">
+      <div id="samples" class="samples"></div>
 
-      <details class="adv">
-        <summary>Custom age range (overrides interval)</summary>
-        <div class="row">
-          <label class="fld half"><span>Oldest</span><input id="f-maxma" type="number" min="0" step="any" placeholder="max" /></label>
-          <label class="fld half"><span>Youngest</span><input id="f-minma" type="number" min="0" step="any" placeholder="min" /></label>
-          <label class="fld unit"><span>Units</span>
-            <select id="f-unit">
-              <option value="Ma">Ma (million yr)</option>
-              <option value="ka">ka (thousand yr)</option>
-              <option value="yr">years</option>
+      <form id="search-form" class="filters">
+        <label class="fld">
+          <span>Taxon name</span>
+          <div class="suggest-wrap">
+            <input id="f-taxon" type="text" placeholder="Type to search, or browse the tree…" autocomplete="off" />
+            <div id="taxon-suggest" class="suggest hidden"></div>
+          </div>
+          <small>Any rank — includes all sub-groups. Type to search, or click ▸ to drill down the tree of life.</small>
+        </label>
+
+        <label class="fld">
+          <span>Region</span>
+          <div class="suggest-wrap">
+            <input id="f-region" type="text" placeholder="🌍 Whole world — type a country or continent…" autocomplete="off" />
+            <div id="region-suggest" class="suggest hidden"></div>
+          </div>
+          <small>Whole world by default. Click ▸ to open a continent or ocean, or type to find a country.</small>
+        </label>
+
+        <details class="adv">
+          <summary>Advanced filters</summary>
+
+          <label class="fld">
+            <span>Exclude groups</span>
+            <div id="exclude-chips" class="chips-in"></div>
+            <div class="suggest-wrap">
+              <input id="f-exclude" type="text" placeholder="Type or browse to add…" autocomplete="off" />
+              <div id="exclude-suggest" class="suggest hidden"></div>
+            </div>
+            <small>Subtract sub-groups from the taxon above (e.g. dinosaurs without birds).</small>
+          </label>
+
+          <label class="fld">
+            <span>Formation</span>
+            <input id="f-formation" type="text" placeholder="e.g. Morrison, Hell Creek" autocomplete="off" />
+            <small>Restrict to a named geological formation.</small>
+          </label>
+
+          <div class="adv-sub">
+            <div class="adv-sub-h">Custom age range (overrides the timescale)</div>
+            <div class="row">
+              <label class="fld half"><span>Oldest</span><input id="f-maxma" type="number" min="0" step="any" placeholder="max" /></label>
+              <label class="fld half"><span>Youngest</span><input id="f-minma" type="number" min="0" step="any" placeholder="min" /></label>
+              <label class="fld unit"><span>Units</span>
+                <select id="f-unit">
+                  <option value="Ma">Ma (million yr)</option>
+                  <option value="ka">ka (thousand yr)</option>
+                  <option value="yr">years</option>
+                </select>
+              </label>
+            </div>
+            <small>Use “years” or “ka” to find very recent sites — e.g. the last few thousand years.</small>
+          </div>
+
+          <label class="fld">
+            <span>Environment</span>
+            <select id="f-env">
+              <option value="">Any</option>
+              <option value="terrestrial">Terrestrial (land)</option>
+              <option value="marine">Marine (sea)</option>
+              <option value="lacustrine">Lacustrine (lakes)</option>
+              <option value="fluvial">Fluvial (rivers)</option>
             </select>
           </label>
+
+          <label class="fld chk">
+            <input id="f-view" type="checkbox" />
+            <span>Only search the area I'm looking at</span>
+          </label>
+
+          <label class="fld">
+            <span>Max results</span>
+            <select id="f-limit">
+              <option value="500">500</option>
+              <option value="2000" selected>2000</option>
+              <option value="5000">5000</option>
+              <option value="15000">15000 (slow)</option>
+            </select>
+          </label>
+        </details>
+
+        <div class="btns">
+          <button type="submit" id="btn-search">Search</button>
+          <button type="button" id="btn-save" class="ghost" title="Save this search">★ Save</button>
+          <button type="button" id="btn-clear" class="ghost">Clear</button>
         </div>
-        <small>Use “years” or “ka” to find very recent sites — e.g. the last few thousand years.</small>
+      </form>
+
+      <details id="saved-wrap" class="adv saved hidden">
+        <summary>★ Saved searches</summary>
+        <div id="saved-list" class="saved-list"></div>
+      </details>
+    </div>
+
+    <!-- ===== Results tab: read the output ===== -->
+    <div id="tab-results" class="tabpane" role="tabpanel">
+      <div id="status" class="status"></div>
+      <p id="results-empty" class="muted-note">Run a search and your results — counts, the world at this time, and a diversity breakdown — appear here.</p>
+
+      <div id="paleoclimate" class="climate hidden"></div>
+
+      <details id="stats-wrap" class="stats adv">
+        <summary>📊 Diversity of these results</summary>
+        <div id="stats-body" class="stats-body"><p class="muted-note">Run a search to see a breakdown by period, country and formation.</p></div>
       </details>
 
-      <label class="fld">
-        <span>Environment</span>
-        <select id="f-env">
-          <option value="">Any</option>
-          <option value="terrestrial">Terrestrial (land)</option>
-          <option value="marine">Marine (sea)</option>
-          <option value="lacustrine">Lacustrine (lakes)</option>
-          <option value="fluvial">Fluvial (rivers)</option>
-        </select>
-      </label>
+      <div id="taxon-info" class="taxon-info hidden"></div>
 
-      <label class="fld">
-        <span>Region</span>
-        <div class="suggest-wrap">
-          <input id="f-region" type="text" placeholder="🌍 Whole world — type a country or continent…" autocomplete="off" />
-          <div id="region-suggest" class="suggest hidden"></div>
-        </div>
-        <small>Whole world by default. Click ▸ to open a continent or ocean, or type to find a country.</small>
-      </label>
-
-      <label class="fld chk">
-        <input id="f-view" type="checkbox" />
-        <span>Only search the area I'm looking at</span>
-      </label>
-
-      <label class="fld">
-        <span>Max results</span>
-        <select id="f-limit">
-          <option value="500">500</option>
-          <option value="2000" selected>2000</option>
-          <option value="5000">5000</option>
-          <option value="15000">15000 (slow)</option>
-        </select>
-      </label>
-
-      <div class="btns">
-        <button type="submit" id="btn-search">Search</button>
-        <button type="button" id="btn-save" class="ghost" title="Save this search">★ Save</button>
-        <button type="button" id="btn-clear" class="ghost">Clear</button>
-      </div>
       <div class="btns export-row">
         <button type="button" id="btn-download" class="ghost" disabled>⬇ Export</button>
         <select id="f-export" title="Export format" disabled>
@@ -124,51 +160,38 @@
         </select>
         <button type="button" id="btn-link" class="ghost" title="Copy a shareable link to this exact view">🔗 Link</button>
       </div>
-    </form>
 
-    <div id="status" class="status"></div>
-
-    <div id="taxon-info" class="taxon-info hidden"></div>
-
-    <details id="saved-wrap" class="adv saved hidden">
-      <summary>★ Saved searches</summary>
-      <div id="saved-list" class="saved-list"></div>
-    </details>
-
-    <details id="stats-wrap" class="stats adv">
-      <summary>📊 Diversity of these results</summary>
-      <div id="stats-body" class="stats-body"><p class="muted-note">Run a search to see a breakdown by period, country and formation.</p></div>
-    </details>
-
-    <div id="paleoclimate" class="climate hidden"></div>
-    <div id="density-legend" class="legend density-legend hidden"></div>
-
-    <footer class="panel-foot">
-      <label class="fld">
-        <span>Jump to place</span>
-        <input id="f-place" type="text" placeholder="e.g. Mongolia, Hell Creek, London…" autocomplete="off" />
-        <small>Fly the globe to a place (OpenStreetMap search). Press Enter.</small>
-      </label>
-      <label class="fld">
-        <span>Map style</span>
-        <select id="f-base">
-          <option value="marble">Blue Marble (works offline)</option>
-          <option value="satellite">Satellite — high-detail (online)</option>
-        </select>
-        <small>Satellite loads sharp imagery that gets crisper as you zoom in.</small>
-      </label>
-      <label class="fld chk"><input id="f-paleo" type="checkbox" /><span>Show on ancient Earth (paleo-coordinates)</span></label>
-      <small id="paleo-note" class="paleo-note hidden"></small>
-      <label class="fld chk"><input id="f-plates" type="checkbox" /><span>Tectonic plate boundaries <small class="src-tag">GPlates</small></span></label>
-      <label class="fld chk"><input id="f-neotoma" type="checkbox" /><span>Add Quaternary sites <small class="src-tag">Neotoma</small></span></label>
-      <small class="paleo-note">Neotoma adds Ice-Age &amp; Holocene records (pollen, mammals…) for recent intervals — zoom to a region, then search.</small>
-      <label class="fld chk"><input id="f-spin" type="checkbox" checked /><span>Auto-rotate globe</span></label>
-      <label class="fld chk"><input id="f-density" type="checkbox" /><span>Density view (cluster hot-spots)</span></label>
-      <label class="fld chk"><input id="f-cb" type="checkbox" /><span>Colour-blind-safe ages</span></label>
-    </footer>
+      <div id="density-legend" class="legend density-legend hidden"></div>
+    </div>
   </aside>
 
   <button id="panel-toggle" title="Show/hide panel">☰</button>
+
+  <!-- ===== Map & layers popover (display options, off the globe) ===== -->
+  <button id="layers-btn" title="Map &amp; layers" aria-label="Map and layers">⧉</button>
+  <div id="layers-pop" class="layers-pop hidden" aria-label="Map and layers">
+    <div class="lp-head">Map &amp; layers</div>
+    <label class="fld">
+      <span>Map style</span>
+      <select id="f-base">
+        <option value="marble">Blue Marble (works offline)</option>
+        <option value="satellite">Satellite — high-detail (online)</option>
+      </select>
+    </label>
+    <label class="fld chk"><input id="f-paleo" type="checkbox" /><span>Show on ancient Earth (paleo-coordinates)</span></label>
+    <small id="paleo-note" class="paleo-note hidden"></small>
+    <label class="fld chk"><input id="f-plates" type="checkbox" /><span>Tectonic plate boundaries <small class="src-tag">GPlates</small></span></label>
+    <label class="fld chk"><input id="f-neotoma" type="checkbox" /><span>Add Quaternary sites <small class="src-tag">Neotoma</small></span></label>
+    <small class="paleo-note">Neotoma adds Ice-Age &amp; Holocene records (pollen, mammals…) for recent intervals — zoom to a region, then search.</small>
+    <label class="fld chk"><input id="f-spin" type="checkbox" checked /><span>Auto-rotate globe</span></label>
+    <label class="fld chk"><input id="f-density" type="checkbox" /><span>Density view (cluster hot-spots)</span></label>
+    <label class="fld chk"><input id="f-cb" type="checkbox" /><span>Colour-blind-safe ages</span></label>
+    <label class="fld">
+      <span>Jump to place</span>
+      <input id="f-place" type="text" placeholder="e.g. Mongolia, Hell Creek, London…" autocomplete="off" />
+      <small>Fly the globe to a place (OpenStreetMap search). Press Enter.</small>
+    </label>
+  </div>
 
   <!-- ===== Geologic timescale (top) — drill-down picker + time machine =====
        A scrubber strip (always visible) sits above the interval summary; the
