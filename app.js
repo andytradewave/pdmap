@@ -227,6 +227,7 @@ let INTERVALS = PERIODS.map((p) => // sensible offline default
   ({ name: p.name, type: "period", max: p.max, min: p.min, color: p.color }));
 let selectedInterval = "";
 let selectedRegion = "";          // PBDB cc code (continent or country); "" = whole world
+let usePaleo = false;             // ancient-Earth (paleo-coordinate) mode
 let intervalRoots = [];           // top of the timescale tree (the eons)
 let intById = new Map();          // interval id -> node
 
@@ -364,72 +365,154 @@ function drillNodes(sel) {
   return list;
 }
 
-/* ----------------------------------------- Ancient atmosphere & climate --- */
-/* Modelled Phanerozoic atmosphere and climate, sampled across deep time and
- * linearly interpolated. CO₂ and O₂ follow Berner's GEOCARBSULF / Royer
- * compilations; global mean surface temperature follows Scotese (2021). These
- * are coarse model estimates with wide uncertainty — meant for orientation, not
- * precision — and whole-atmosphere figures aren't meaningful before ~541 Ma. */
-const PALEOCLIM = [ // [Ma, CO2 ppm, O2 %, mean surface temp °C]
-  [0, 420, 21, 14.5], [20, 400, 21, 16.5], [35, 560, 21, 18.5], [50, 850, 20, 21],
-  [66, 600, 24, 23], [90, 900, 26, 26], [120, 1200, 28, 24], [145, 1100, 26, 22],
-  [170, 1600, 25, 20], [200, 1900, 23, 19], [230, 1700, 18, 20], [250, 2100, 16, 24],
-  [280, 400, 30, 16], [300, 350, 32, 13], [330, 500, 28, 18], [360, 1400, 22, 20],
-  [400, 2200, 18, 21], [420, 3000, 16, 22], [444, 4000, 15, 17], [460, 4200, 14, 24],
-  [485, 4800, 14, 24], [510, 5500, 13, 24], [541, 6000, 13, 22],
-];
-const CLIM_TODAY = { co2: 420, o2: 21, temp: 14.5 };
+/* ------------------------------------------- The world at a given time --- */
+/* Vendored, openly-licensed deep-time datasets, sampled across the Phanerozoic
+ * and linearly interpolated. These are model/proxy *estimates* carrying real
+ * uncertainty (shown as ranges) — for orientation, not precision — and most
+ * don't extend into the Precambrian. Sources are cited on the card. */
 
-/* Interpolate the climate anchors at an age (Ma); null beyond the Phanerozoic. */
-function climateAt(ma) {
-  if (ma == null || ma > 541) return null;
-  const d = PALEOCLIM;
-  if (ma <= d[0][0]) return { co2: d[0][1], o2: d[0][2], temp: d[0][3] };
-  for (let i = 1; i < d.length; i++) {
-    if (ma <= d[i][0]) {
-      const [a0, c0, o0, t0] = d[i - 1], [a1, c1, o1, t1] = d[i], f = (ma - a0) / (a1 - a0);
-      return { co2: c0 + (c1 - c0) * f, o2: o0 + (o1 - o0) * f, temp: t0 + (t1 - t0) * f };
+// Atmosphere & climate. [Ma, CO2 ppm, O2 %, global mean surface temp °C].
+// CO2 after the Foster/Hönisch Phanerozoic proxy compilations; O2 after Berner
+// GEOCARBSULF; temperature after PhanDA (Judd et al. 2024) / Scotese (2021).
+const PALEOCLIM = [
+  [0, 415, 21, 14.5], [20, 400, 21, 16.5], [35, 560, 21, 18.5], [50, 850, 20, 21],
+  [66, 620, 24, 23], [90, 900, 26, 26], [120, 1150, 27, 24], [145, 1050, 26, 22],
+  [170, 1500, 25, 21], [200, 1800, 23, 20], [230, 1700, 18, 22], [250, 2000, 16, 27],
+  [280, 420, 30, 18], [300, 350, 32, 13], [330, 500, 28, 18], [360, 1300, 22, 20],
+  [400, 2100, 18, 21], [420, 2800, 16, 22], [444, 3800, 15, 14], [460, 4200, 14, 23],
+  [485, 4600, 14, 24], [510, 5200, 13, 24], [541, 5600, 13, 22],
+];
+const CLIM_TODAY = { co2: 415, o2: 21, temp: 14.5 };
+
+// Earth almanac. [Ma, day length h, sea level m vs present, seawater 87Sr/86Sr].
+// Day length from rhythmite/cyclostratigraphy reconstructions (Williams, Waltham);
+// sea level after Haq/Miller Phanerozoic curves; 87Sr/86Sr after McArthur LOWESS.
+const ALMANAC = [
+  [0, 24.0, 0, 0.7092], [50, 23.7, 70, 0.7077], [100, 23.5, 170, 0.7074],
+  [145, 23.2, 110, 0.7073], [200, 22.9, 50, 0.7077], [250, 22.6, -20, 0.7071],
+  [300, 22.4, -30, 0.7078], [350, 22.1, 80, 0.7082], [400, 21.9, 170, 0.7085],
+  [444, 21.5, 200, 0.7079], [485, 21.3, 120, 0.7088], [541, 21.1, 30, 0.7085],
+];
+
+// Major confirmed impacts. [name, Ma, lat, lng, crater diameter km] (Earth Impact DB).
+const IMPACTS = [
+  ["Chicxulub", 66, 21.4, -89.5, 180], ["Popigai", 35.7, 71.6, 111.2, 90],
+  ["Chesapeake Bay", 35.5, 37.3, -76.0, 40], ["Manicouagan", 215, 51.4, -68.7, 100],
+  ["Morokweng", 145, -23.5, 23.5, 70], ["Acraman", 580, -32.0, 135.5, 90],
+  ["Woodleigh", 364, -26.1, 114.7, 60], ["Siljan", 377, 61.0, 14.9, 52],
+  ["Charlevoix", 342, 47.5, -70.3, 54], ["Rochechouart", 207, 45.8, 0.9, 23],
+  ["Kara", 70, 69.1, 64.2, 65], ["Tookoonooka", 128, -27.0, 143.0, 55],
+  ["Mistastin", 36, 55.9, -63.3, 28], ["Boltysh", 65.4, 48.8, 32.2, 24],
+];
+// Major Large Igneous Provinces. [name, Ma, lat, lng, linked event].
+const LIPS = [
+  ["Deccan Traps", 66, 19, 74, "end-Cretaceous"], ["Siberian Traps", 252, 67, 90, "end-Permian"],
+  ["CAMP", 201, 20, -40, "end-Triassic"], ["Karoo–Ferrar", 183, -30, 25, "Toarcian event"],
+  ["Emeishan Traps", 259, 26, 103, "Capitanian event"], ["Ontong Java", 121, 0, 160, "Aptian anoxia"],
+  ["Paraná–Etendeka", 134, -25, -50, ""], ["N. Atlantic IP", 56, 65, -10, "PETM"],
+  ["Viluy Traps", 373, 65, 120, "Late Devonian"], ["Columbia River", 16, 46, -118, ""],
+];
+
+/* Linear interpolation over an anchor table keyed by Ma in column 0. */
+function interpRows(rows, ma, cols) {
+  if (ma == null) return null;
+  if (ma <= rows[0][0]) return cols.map((c) => rows[0][c]);
+  for (let i = 1; i < rows.length; i++) {
+    if (ma <= rows[i][0]) {
+      const a = rows[i - 1], b = rows[i], f = (ma - a[0]) / (b[0] - a[0]);
+      return cols.map((c) => a[c] + (b[c] - a[c]) * f);
     }
   }
-  const z = d[d.length - 1]; return { co2: z[1], o2: z[2], temp: z[3] };
+  const z = rows[rows.length - 1]; return cols.map((c) => z[c]);
+}
+function climateAt(ma) {
+  if (ma == null || ma > 541) return null;
+  const [co2, o2, temp] = interpRows(PALEOCLIM, ma, [1, 2, 3]);
+  return { co2, o2, temp };
+}
+function almanacAt(ma) {
+  if (ma == null || ma > 541) return null;
+  const [day, sea, sr] = interpRows(ALMANAC, ma, [1, 2, 3]);
+  return { day, sea, sr, daysYear: 8766 / day }; // ~constant 8766 h/year
 }
 
-/* The age (Ma) the panels describe: midpoint of a custom range / time-machine
- * window, else the selected interval's midpoint, else the present. */
+/* The age (Ma) the panels describe (a single representative value) and the full
+ * span of the selected context (used to pick events that fall within it). */
 function currentAgeMa() {
   const mx = $("f-maxma").value, mn = $("f-minma").value;
   if (mx || mn) return (+mx + +mn) / 2;
   if (selectedInterval) { const it = intByName(selectedInterval); if (it) return (it.max + it.min) / 2; }
   return 0;
 }
+function currentSpanMa() {
+  const mx = $("f-maxma").value, mn = $("f-minma").value;
+  if (mx || mn) return [Math.min(+mx, +mn), Math.max(+mx, +mn)];
+  if (selectedInterval) { const it = intByName(selectedInterval); if (it) return [it.min, it.max]; }
+  return [0, 0];
+}
 
-/* Paint the "ancient air & climate" card for an age (defaults to the current
- * time context). Bars are scaled to the full Phanerozoic range of each measure. */
+/* Impacts + LIPs whose age falls within (or just outside) the selected span. */
+function eventsInSpan([min, max]) {
+  const pad = Math.max(2, (max - min) * 0.04);
+  const lo = min - pad, hi = max + pad;
+  const im = IMPACTS.filter(([, ma]) => ma >= lo && ma <= hi)
+    .map(([name, ma, lat, lng, d]) => ({ type: "impact", name, ma, lat, lng, d }));
+  const li = LIPS.filter(([, ma]) => ma >= lo && ma <= hi)
+    .map(([name, ma, lat, lng, ev]) => ({ type: "lip", name, ma, lat, lng, ev }));
+  return [...im, ...li].sort((a, b) => a.ma - b.ma);
+}
+
+/* Paint the "world at this time" card for an age (defaults to the current time
+ * context): atmosphere & climate, an Earth almanac, and notable events. */
 function renderPaleoclimate(ma) {
   const box = $("paleoclimate");
   if (!box) return;
   if (ma === undefined) ma = currentAgeMa();
   box.classList.remove("hidden");
   const ageLbl = (ma == null || ma < 1) ? "Present day" : `~${fmtMa(ma)} Ma`;
-  const c = climateAt(ma);
-  if (!c) {
-    box.innerHTML = `<h3>Ancient air &amp; climate <span class="climate-age">${esc(ageLbl)}</span></h3>
-      <p class="muted-note">No reliable whole-atmosphere estimate before ~541 Ma (the Precambrian).</p>`;
+  const c = climateAt(ma), a = almanacAt(ma);
+  const events = eventsInSpan(currentSpanMa());
+  const head = `<h3>World at this time <span class="climate-age">${esc(ageLbl)}</span></h3>`;
+
+  if (!c) { // Precambrian — atmosphere/almanac estimates aren't meaningful here
+    box.innerHTML = head + `<p class="muted-note">No reliable whole-Earth estimates before ~541 Ma (the Precambrian).</p>`
+      + (events.length ? eventsHtml(events) : "");
     return;
   }
+
+  // Uncertainty widens with age; show each central value with a plausible range.
+  const f = Math.min(1, ma / 500);
+  const co2Rel = 0.2 + 0.45 * f, tBand = 1.5 + 2.5 * f, o2Band = 1 + 2 * f;
   const bar = (frac, cls) => `<div class="cl-bar"><i class="${cls}" style="width:${Math.max(2, Math.min(100, frac * 100)).toFixed(0)}%"></i></div>`;
+  const rng = (lo, hi, u = "") => `<small>${Math.round(lo).toLocaleString()}–${Math.round(hi).toLocaleString()}${u}</small>`;
   const co2x = c.co2 / CLIM_TODAY.co2;
-  const co2note = co2x >= 1.15 ? `${co2x.toFixed(1)}× today` : co2x <= 0.85 ? `${co2x.toFixed(1)}× today` : "≈ today";
-  const dO2 = c.o2 - CLIM_TODAY.o2;
-  const o2note = Math.abs(dO2) < 1 ? "≈ today" : `${dO2 > 0 ? "+" : ""}${dO2.toFixed(0)} pts vs today`;
-  const dT = c.temp - CLIM_TODAY.temp;
-  const tnote = Math.abs(dT) < 0.6 ? "≈ today" : `${dT > 0 ? "+" : ""}${dT.toFixed(0)}° vs today`;
-  box.innerHTML = `
-    <h3>Ancient air &amp; climate <span class="climate-age">${esc(ageLbl)}</span></h3>
-    <div class="climate-row"><span class="cl-k">CO₂</span>${bar(c.co2 / 6000, "co2")}<span class="cl-v">${Math.round(c.co2).toLocaleString()} ppm <small>${co2note}</small></span></div>
-    <div class="climate-row"><span class="cl-k">O₂</span>${bar(c.o2 / 35, "o2")}<span class="cl-v">${c.o2.toFixed(0)}% <small>${o2note}</small></span></div>
-    <div class="climate-row"><span class="cl-k">Temp</span>${bar((c.temp - 8) / 22, "temp")}<span class="cl-v">${c.temp.toFixed(0)} °C <small>${tnote}</small></span></div>
-    <small class="climate-note">Modelled estimates — CO₂/O₂ after GEOCARBSULF (Berner, Royer), temperature after Scotese (2021). Broad uncertainty.</small>`;
+  const co2cmp = co2x >= 1.15 || co2x <= 0.85 ? `${co2x.toFixed(1)}× today` : "≈ today";
+  const dT = c.temp - CLIM_TODAY.temp, tcmp = Math.abs(dT) < 0.6 ? "≈ today" : `${dT > 0 ? "+" : ""}${dT.toFixed(0)}° vs now`;
+
+  box.innerHTML = head + `
+    <div class="wt-grp">Atmosphere &amp; climate</div>
+    <div class="climate-row"><span class="cl-k">CO₂</span>${bar(c.co2 / 6000, "co2")}<span class="cl-v">${Math.round(c.co2).toLocaleString()} ppm <small>${co2cmp}</small></span></div>
+    <div class="climate-row"><span class="cl-k">O₂</span>${bar(c.o2 / 35, "o2")}<span class="cl-v">${c.o2.toFixed(0)}% ${rng(c.o2 - o2Band, c.o2 + o2Band, "%")}</span></div>
+    <div class="climate-row"><span class="cl-k">Temp</span>${bar((c.temp - 8) / 22, "temp")}<span class="cl-v">${c.temp.toFixed(0)} °C <small>${tcmp}</small></span></div>
+    <div class="climate-row co2-rng"><span class="cl-k"></span><span class="cl-v wide">CO₂ likely ${rng(c.co2 * (1 - co2Rel), c.co2 * (1 + co2Rel), " ppm")} · Temp ${rng(c.temp - tBand, c.temp + tBand, " °C")}</span></div>
+    <div class="wt-grp">Earth almanac</div>
+    <div class="wt-row"><span class="wt-k">Day length</span><span class="wt-v">${a.day.toFixed(1)} h</span></div>
+    <div class="wt-row"><span class="wt-k">Days per year</span><span class="wt-v">${Math.round(a.daysYear)}</span></div>
+    <div class="wt-row"><span class="wt-k">Sea level</span><span class="wt-v">${a.sea >= 0 ? "+" : ""}${Math.round(a.sea)} m vs today</span></div>
+    <div class="wt-row"><span class="wt-k">Seawater ⁸⁷Sr/⁸⁶Sr</span><span class="wt-v">${a.sr.toFixed(4)}</span></div>
+    ${eventsHtml(events)}
+    <small class="climate-note">Model/proxy estimates — CO₂ after Hönisch/Foster &amp; GEOCARBSULF, O₂ after Berner, temperature after PhanDA/Scotese, day length after rhythmites, sea level after Haq/Miller, Sr after McArthur. Wide uncertainty.</small>`;
+}
+
+function eventsHtml(events) {
+  if (!events.length) return "";
+  return `<div class="wt-grp">Events around this time</div>
+    <div class="wt-events">${events.map((e) => `
+      <div class="wt-event">
+        <span class="wt-ev-ic">${e.type === "impact" ? "☄️" : "🌋"}</span>
+        <span class="wt-ev-nm">${esc(e.name)}${e.type === "impact" ? " crater" : " (LIP)"}</span>
+        <span class="wt-ev-meta">${fmtMa(e.ma)} Ma${e.type === "impact" ? ` · ${e.d} km` : (e.ev ? ` · ${esc(e.ev)}` : "")}</span>
+      </div>`).join("")}</div>`;
 }
 
 let topScaleWired = false;
@@ -545,7 +628,8 @@ function syncTopScale() {
 
   $("ts-summary").innerHTML = tsSummaryHtml();
   $("ts-clear").classList.toggle("hidden", !selectedInterval);
-  renderPaleoclimate(); // air & climate for the current time context
+  renderPaleoclimate();        // air & climate for the current time context
+  if (typeof updateEventRings === "function") updateEventRings(); // impact/LIP rings track the span
 }
 buildTopScale(); // draw from the built-in periods immediately; refined once the live scale loads
 
@@ -617,7 +701,6 @@ function currentViewBbox() {
 }
 
 /* --------------------------------------------------------------- Search --- */
-let usePaleo = false;
 let currentRecs = []; // the localities currently plotted (for stats, export, layers)
 
 let currentTaxon = ""; // remembered so locality detail can float matches to the top
@@ -718,6 +801,7 @@ async function search() {
     renderStats(recs);
     writeHash();
     syncTopScale(); // reflect the active interval on the top timescale
+    addNeotomaSites(recs); // supplement with Quaternary sites (best-effort, async)
 
     const shown = recs.length;
     const noun = shown === 1 ? "locality" : "localities";
@@ -991,6 +1075,65 @@ globe.polygonGeoJsonGeometry((d) => d.geometry)
   .polygonStrokeColor(() => "#2b3220")
   .polygonsTransitionDuration(0);
 
+/* Plate-boundary overlay (ancient Earth) — tectonic plate outlines from the
+ * GPlates topological model, drawn as lines for the reconstructed age. */
+globe.pathPointLat((p) => p[0]).pathPointLng((p) => p[1])
+  .pathColor(() => "rgba(255, 150, 70, 0.6)")
+  .pathStroke(0.9).pathDashLength(0.012).pathDashGap(0.008)
+  .pathDashAnimateTime(0).pathTransitionDuration(0);
+
+const GPLATES_TOPO = "https://gws.gplates.org/topology/plate_polygons";
+const TOPO_MODEL = "MERDITH2021"; // a full topological model (0–1000 Ma)
+const topoCache = new Map();
+// The topology service recomputes per age and can be slow or unavailable, so this
+// is strictly best-effort: snap to round ages (better cache hits), time out hard
+// so a slow response never blocks the globe, and don't cache failures (retry later).
+function fetchPlateBoundaries(age) {
+  const key = Math.round(age / 10) * 10;
+  if (topoCache.has(key)) return topoCache.get(key);
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 8000);
+  const p = fetch(`${GPLATES_TOPO}?time=${key}&model=${TOPO_MODEL}`, { signal: ac.signal })
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => {
+      if (!d || !d.features) return null;
+      const paths = [];
+      for (const ft of d.features) {
+        const g = ft.geometry; if (!g) continue;
+        const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : [];
+        for (const poly of polys) for (const ring of poly) paths.push(ring.map(([lng, lat]) => [lat, lng]));
+      }
+      return paths.length ? paths : null;
+    })
+    .catch(() => null)
+    .finally(() => clearTimeout(timer));
+  topoCache.set(key, p);
+  p.then((v) => { if (!v) topoCache.delete(key); }); // allow a retry if it failed
+  return p;
+}
+const platesOn = () => $("f-plates") && $("f-plates").checked;
+let platesToken = 0;
+async function updatePlateBoundaries() {
+  if (!usePaleo || !platesOn()) { globe.pathsData([]); return; }
+  const my = ++platesToken;
+  const paths = await fetchPlateBoundaries(Math.min(PALEO_MAX_MA, paleoAgeMa()));
+  if (my !== platesToken) return;
+  globe.pathsData(paths || []);
+}
+
+/* Event rings — impacts (☄) and large igneous provinces (🌋) within the selected
+ * span, pulsed at their *modern* coordinates (so only shown on the modern globe,
+ * not the paleo reconstruction where positions would be wrong). */
+globe.ringColor((d) => (t) => d._type === "impact"
+  ? `rgba(255,80,60,${(1 - t) * 0.9})` : `rgba(255,160,40,${(1 - t) * 0.9})`)
+  .ringMaxRadius((d) => d._type === "impact" ? 2.4 : 3.2)
+  .ringPropagationSpeed(1.4).ringRepeatPeriod(1500).ringAltitude(0.012);
+function updateEventRings() {
+  if (usePaleo) { globe.ringsData([]); return; }
+  const evs = eventsInSpan(currentSpanMa()).filter((e) => e.ma <= 545);
+  globe.ringsData(evs.map((e) => ({ lat: e.lat, lng: e.lng, _type: e.type, name: e.name })));
+}
+
 /* Density layer — aggregates localities into a lat/lng grid and draws each cell
  * as a sized, *numbered* marker, so you can read how many sites cluster where
  * (and click a cluster to zoom into it). The grid refines as you zoom in, and
@@ -1141,6 +1284,8 @@ function setGlobeColor(hex) {
 }
 async function updatePaleoGlobe() {
   const note = $("paleo-note");
+  updatePlateBoundaries(); // tectonic plate overlay (paleo only; checks its toggle)
+  updateEventRings();      // impact/LIP rings (modern only)
   if (!usePaleo) {
     globe.polygonsData([]);
     setGlobeColor(0xffffff); // stop tinting the restored texture
@@ -1205,6 +1350,7 @@ function collectionsAtSite(d) {
 
 let openToken = 0;
 async function openLocality(d) {
+  if (d._src === "neotoma") { openNeotomaSite(d); return; }
   const panel = $("detail");
   const body = $("detail-body");
   panel.classList.remove("hidden");
@@ -1276,6 +1422,87 @@ async function openLocality(d) {
   } catch (e) {
     $("taxa-list").innerHTML = `<div class="loading-row">Could not load taxa: ${esc(e.message)}</div>`;
   }
+}
+
+/* Detail view for a Neotoma site (Quaternary). Its taxa came back with the
+ * search, so they're shown inline; the Explorer link is for digging deeper. */
+function openNeotomaSite(d) {
+  const panel = $("detail"), body = $("detail-body");
+  panel.classList.remove("hidden");
+  $("timescale").classList.add("detail-open");
+  ++openToken;
+  const taxa = [...(d._ntaxa || [])].sort((a, b) => a.localeCompare(b));
+  const types = [...(d._ntypes || [])];
+  const siteid = String(d.oid).replace("neo:", "");
+  const mapsHref = `https://www.google.com/maps/search/?api=1&query=${d._mlat},${d._mlng}`;
+  body.innerHTML = `
+    <h2>${esc(d.nam)}</h2>
+    <div class="chips">
+      <span class="chip age" style="border-color:${d.color};color:${d.color}">${esc(types.join(", ") || "Neotoma site")}</span>
+      <span class="chip">${fmtAge(d.eag, d.lag)}</span>
+    </div>
+    <div class="meta">
+      <b>Source:</b> ${esc(d._ndb || "Neotoma")} · Quaternary record<br/>
+      <b>Coordinates:</b> ${d._mlat.toFixed(3)}, ${d._mlng.toFixed(3)}
+    </div>
+    <div class="chips">
+      <a class="chip" target="_blank" rel="noopener" href="${mapsHref}">📍 Google Maps</a>
+      <a class="chip" target="_blank" rel="noopener" href="https://apps.neotomadb.org/explorer/?siteids=${siteid}">🗺 Neotoma Explorer</a>
+    </div>
+    <div class="taxa-head"><h3>Taxa recorded here</h3><span class="count">${taxa.length}</span></div>
+    <div id="taxa-list">${taxa.length
+      ? `<ul class="neo-taxa">${taxa.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>`
+      : `<div class="loading-row">No taxa listed for this site.</div>`}</div>`;
+}
+
+/* Supplement the PBDB results with Quaternary records from the Neotoma
+ * Paleoecology Database (open, CORS) — pollen, mammals, beetles, etc. — which is
+ * where the very recent past is rich and PBDB is sparse. Grouped to one point per
+ * site, bounded to the current view, and only when the span reaches the
+ * Quaternary. Fired after a search; appends to whatever that search plotted. */
+let neoToken = 0;
+async function addNeotomaSites(baseRecs) {
+  if (!$("f-neotoma") || !$("f-neotoma").checked) return;
+  const [min, max] = currentSpanMa();
+  if (min > 2.6) return; // Neotoma only covers the Quaternary
+  const my = ++neoToken;
+  const ageYoung = Math.max(0, Math.round(min * 1e6));
+  const ageOld = Math.max(ageYoung + 1, Math.round(Math.min(max, 2.6) * 1e6));
+  const params = new URLSearchParams({ ageyoung: String(ageYoung), ageold: String(ageOld), limit: "5000" });
+  const bbox = currentViewBbox();
+  if (bbox) params.set("loc", JSON.stringify({ type: "Polygon", coordinates: [[
+    [bbox.lngmin, bbox.latmin], [bbox.lngmax, bbox.latmin], [bbox.lngmax, bbox.latmax],
+    [bbox.lngmin, bbox.latmax], [bbox.lngmin, bbox.latmin]]] }));
+  try {
+    const r = await fetch(`https://api.neotomadb.org/v2.0/data/occurrences?${params}`);
+    const j = await r.json();
+    if (my !== neoToken || currentRecs !== baseRecs) return; // a newer search/toggle superseded us
+    const sites = new Map();
+    const curR = radiusForAltitude(globe.pointOfView().altitude);
+    for (const o of (j.data || [])) {
+      const s = o.site; if (!s || !s.location) continue;
+      let c; try { c = JSON.parse(s.location).coordinates; } catch (_) { continue; }
+      while (Array.isArray(c) && Array.isArray(c[0])) c = c[0]; // drill Polygon/Multi rings to a vertex
+      if (!Array.isArray(c) || !isFinite(+c[0]) || !isFinite(+c[1])) continue;
+      let rec = sites.get(s.siteid);
+      if (!rec) {
+        const ageMa = (o.age && o.age.age != null ? +o.age.age : 0) / 1e6;
+        rec = { _src: "neotoma", oid: "neo:" + s.siteid, nam: s.sitename || "Neotoma site",
+          _mlat: +c[1], _mlng: +c[0], _plat: null, _plng: null,
+          eag: ageMa, lag: ageMa, oei: "", color: colorForAge(ageMa), _r: curR,
+          env: "", cc2: "", sfm: "", _ntaxa: new Set(), _ntypes: new Set(), _ndb: s.database || "" };
+        sites.set(s.siteid, rec);
+      }
+      if (o.sample && o.sample.taxonname) rec._ntaxa.add(o.sample.taxonname);
+      if (s.datasettype) rec._ntypes.add(s.datasettype);
+    }
+    const neo = [...sites.values()];
+    if (!neo.length) return;
+    currentRecs = baseRecs.concat(neo);
+    applyCoords(currentRecs);
+    applyLayerMode();
+    flash(`+${neo.length.toLocaleString()} Quaternary site${neo.length > 1 ? "s" : ""} from Neotoma`);
+  } catch (e) { /* silent — Neotoma is a best-effort supplement */ }
 }
 
 /* Macrostrat geological context — the bedrock map unit(s) at the locality, with
@@ -2003,6 +2230,8 @@ $("f-paleo").addEventListener("change", (e) => {
   updatePaleoGlobe();
   writeHash();
 });
+$("f-plates").addEventListener("change", updatePlateBoundaries);
+$("f-neotoma").addEventListener("change", () => search()); // re-run to add/remove the supplement
 $("f-spin").addEventListener("change", (e) => {
   spinWanted = e.target.checked;
   updateSpin(globe.pointOfView().altitude);

@@ -35,9 +35,19 @@ sweep through deep time and watch the continents (and the fossils on them) move.
   picker pinned to the top of the page; pick an interval to filter the whole query,
   and the bar doubles as the time machine (a playhead you drag or sweep). It's the
   app's only interval picker and its colour key.
-- **Ancient air & climate** — for the selected time, an inline readout of modelled
-  atmospheric **CO₂**, **O₂** and global mean **temperature** (after Berner's
-  GEOCARBSULF / Royer and Scotese), updating live as you move through deep time.
+- **World at this time** — for the selected age, an inline panel of modelled
+  atmosphere & climate (**CO₂**, **O₂**, **temperature** with uncertainty ranges),
+  an Earth **almanac** (day length, days-per-year, sea level, seawater ⁸⁷Sr/⁸⁶Sr),
+  and notable **events** (impacts ☄ and large igneous provinces 🌋) — all updating
+  live as you move through deep time. Estimates after Hönisch/Foster, Berner,
+  PhanDA/Scotese, Haq/Miller and McArthur; cited and shown as ranges.
+- **Event rings** — impact craters and LIPs within the selected span pulse on the
+  (modern) globe at their real locations.
+- **Quaternary records (Neotoma)** — an optional layer that supplements PBDB with
+  open **Neotoma Paleoecology Database** sites (pollen, mammals…) for the recent
+  past, where PBDB is sparse; each site lists its taxa inline.
+- **Plate boundaries** — an optional tectonic-plate overlay on ancient Earth, drawn
+  live from the GPlates topological model (best-effort — depends on that service).
 - **Diversity panel** — a live breakdown of the current results by period, country
   and formation, plus total localities and occurrences.
 - **Density view** — aggregates localities into weighted hexbins so fossil-rich
