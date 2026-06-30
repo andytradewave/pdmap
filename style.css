@@ -423,11 +423,13 @@ button:hover { filter: brightness(1.08); }
 .ts-bar { flex: 1; display: flex; min-width: 0; }
 
 .ts-seg {
-  position: relative; min-width: 0; padding: 0 3px; margin: 0; border: none;
+  position: relative; min-width: 14px; padding: 0 3px; margin: 0; border: none;
   border-right: 1px solid #0006; border-radius: 0; color: #04121c;
   font-size: 11px; font-weight: 700; cursor: pointer;
   display: flex; align-items: center; justify-content: center; overflow: hidden;
 }
+/* The summary cell fills the row on its own and shouldn't carry the per-cell min. */
+.ts-summary .ts-seg, .ts-seg.none { min-width: 0; }
 .ts-seg:last-child { border-right: none; }
 .ts-seg:hover { filter: brightness(1.12); }
 /* Selected interval (deepest pick) — strongest outline. */

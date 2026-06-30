@@ -317,22 +317,31 @@ function precambrianEons() {
     .sort((a, b) => b.max - a.max);
 }
 
-/* One proportional, clickable cell. `flex` overrides the duration-based width
- * (used to compress the Precambrian eons). Cells on the selected lineage are
- * highlighted — the deepest pick strongest (`on`), its ancestors marked
- * (`active`). `dimOthers` dulls the siblings of a chosen cell so the selected
- * one stands out; rows with nothing chosen yet (the frontier) stay bright. */
+/* One proportional, clickable cell. `flex` is its flex-grow share. Cells on the
+ * selected lineage are highlighted — the deepest pick strongest (`on`), its
+ * ancestors marked (`active`). `dimOthers` dulls the siblings of a chosen cell so
+ * the selected one stands out; rows with nothing chosen yet stay bright. */
 function tsSegHtml(node, flex, active, dimOthers) {
-  const f = flex != null ? flex : Math.max(node.max - node.min, 0.0001);
   const onPath = active && active.has(node.name);
   const cls = node.name === selectedInterval ? " on"
     : (onPath ? " active"
     : (dimOthers ? " dim" : ""));
   const col = node.color ? bandColor(node) : "#9a8aa0";
   return `<button type="button" class="ts-seg${cls}" data-val="${esc(node.name)}"
-    style="flex:${f} ${f} 0;background:${col}"
+    style="flex:${flex.toFixed(3)} ${flex.toFixed(3)} 0;background:${col}"
     title="${esc(node.name)} · ${esc(node.type)} · ${fmtMa(node.max)}–${fmtMa(node.min)} Ma — click to filter">
     <span class="ts-seg-lbl">${esc(node.name)}</span></button>`;
+}
+
+/* Build a bar's cells, sizing each by `weightFn` but normalising the row so the
+ * shares always sum to 100. Without this, a row of very short intervals (e.g. the
+ * Holocene's ages, each a few thousand years) has flex-grow values summing to far
+ * less than 1, so flexbox only grows them to a sliver and the row squashes to the
+ * left. `min-width` (in CSS) still keeps tiny cells clickable. */
+function tsBar(nodes, active, dimOthers, weightFn) {
+  const weights = nodes.map((n) => Math.max(weightFn(n), 1e-6));
+  const total = weights.reduce((a, b) => a + b, 0) || 1;
+  return nodes.map((n, i) => tsSegHtml(n, weights[i] / total * 100, active, dimOthers)).join("");
 }
 
 function tsRowHtml(label, inner) {
@@ -385,24 +394,38 @@ function buildTopScale() {
   if (!host) return;
   host.classList.remove("hidden");
   if (!topScaleWired) {
-    // One delegated handler for every cell. A tap on the collapsed summary opens
-    // the stack (touch devices have no hover); a tap on a cell picks it.
-    host.addEventListener("click", (e) => {
-      const seg = e.target.closest(".ts-seg");
-      if (!seg) return;
-      if (seg.closest("#ts-summary")) { host.classList.toggle("open"); return; }
-      if (seg.dataset.val != null) pickInterval(seg.dataset.val);
-    });
-    $("ts-clear").addEventListener("click", () => { if (selectedInterval) pickInterval(""); });
     // Open the stack on hover, close on leave with a short delay. The delay gives
     // hysteresis so a cursor resting near the bottom edge can't rapidly toggle
     // the bar open/closed (the old pure-:hover version flickered there).
+    const inner = host.querySelector(".tscale-inner");
     let closeTimer = null;
     const open = () => { clearTimeout(closeTimer); host.classList.add("open"); };
-    const close = () => { clearTimeout(closeTimer); closeTimer = setTimeout(() => host.classList.remove("open"), 160); };
+    // Re-rendering the stack under the cursor (on every pick) can fire a spurious
+    // mouseleave; only actually close if, after the delay, the cursor really has
+    // left — otherwise picking a cell would snap the bar shut mid-drill.
+    const close = () => {
+      clearTimeout(closeTimer);
+      closeTimer = setTimeout(() => {
+        if (!inner.matches(":hover") && !$("ts-clear").matches(":hover")) host.classList.remove("open");
+      }, 160);
+    };
+    // One delegated handler for every cell. A tap on the collapsed summary opens
+    // the stack (touch devices have no hover); a tap on a cell picks it — and we
+    // keep the bar open so you can carry on drilling deeper without re-opening.
+    host.addEventListener("click", (e) => {
+      const seg = e.target.closest(".ts-seg");
+      if (!seg) return;
+      // Picking re-renders the stack, detaching this very node; stop the event so
+      // the document outside-close handler below doesn't then see a target that's
+      // no longer inside #timescale and wrongly snap the bar shut.
+      e.stopPropagation();
+      if (seg.closest("#ts-summary")) { host.classList.toggle("open"); return; }
+      if (seg.dataset.val != null) { pickInterval(seg.dataset.val); open(); }
+    });
+    $("ts-clear").addEventListener("click", () => { if (selectedInterval) pickInterval(""); });
     // mouseenter/leave don't fire on the pointer-events:none container, so bind to
     // the interactive children (the panel and the clear button).
-    [host.querySelector(".tscale-inner"), $("ts-clear")].forEach((el) => {
+    [inner, $("ts-clear")].forEach((el) => {
       el.addEventListener("mouseenter", open);
       el.addEventListener("mouseleave", close);
     });
@@ -452,11 +475,13 @@ function syncTopScale() {
 
   const eons = precambrianEons();
   const eras = scaleOfType("era");
-  // Header: a single eon/era row. Precambrian eons are compressed.
-  const headerDim = dimRow([...eons, ...eras]);
+  // Header: a single eon/era row. Precambrian eons are compressed to a fixed
+  // share so they don't crush the proportional eras.
+  const headerNodes = [...eons, ...eras];
+  const headerDim = dimRow(headerNodes);
+  const dur = (n) => n.max - n.min;
   let html = tsRowHtml("Eon · Era",
-    eons.map((n) => tsSegHtml(n, PRECAMBRIAN_EON_FLEX, active, headerDim)).join("") +
-    eras.map((n) => tsSegHtml(n, null, active, headerDim)).join(""));
+    tsBar(headerNodes, active, headerDim, (n) => n.type === "eon" ? PRECAMBRIAN_EON_FLEX : dur(n)));
 
   // Drill rows: the selected eon/era's periods, then its epochs, then its ages —
   // only the chosen branch, each row zoomed to fill the width.
@@ -468,8 +493,7 @@ function syncTopScale() {
         const kids = [...node.children].sort((a, b) => b.max - a.max);
         const lvl = kids[0].type;
         const label = (lvl[0].toUpperCase() + lvl.slice(1)) + "s · " + node.name;
-        const rd = dimRow(kids);
-        html += tsRowHtml(label, kids.map((n) => tsSegHtml(n, null, active, rd)).join(""));
+        html += tsRowHtml(label, tsBar(kids, active, dimRow(kids), dur));
       }
     }
   }
@@ -521,11 +545,14 @@ function intervalPath(name) {
 /* Choose an interval (or clear it with ""), then re-run the search. The custom
  * range / time machine write into f-maxma/f-minma, which override any interval in
  * search(); picking an interval is an explicit choice to use it, so clear that
- * range and halt any running sweep. The top timescale reflects the new pick. */
+ * range and halt any running sweep. The time-machine playhead is parked at the
+ * pick's midpoint so it reflects where you are, and the top timescale updates. */
 function pickInterval(name) {
   selectedInterval = name;
   $("f-maxma").value = ""; $("f-minma").value = "";
   if (typeof tmStop === "function") tmStop();
+  const it = name ? intByName(name) : null;
+  if (it && typeof tmSetAge === "function") tmSetAge((it.max + it.min) / 2);
   syncTopScale();
   search();
 }
