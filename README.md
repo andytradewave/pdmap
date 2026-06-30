@@ -31,14 +31,19 @@ sweep through deep time and watch the continents (and the fossils on them) move.
   rank, common name, naming authority, total occurrences, extinct/living) plus its
   **stratigraphic range** (first→last appearance), with a ⏳ button to point the
   time machine straight at that range.
-- **Geologic timescale strip** — a clickable Phanerozoic timescale along the
-  bottom (à la the PBDB Navigator); click a period to filter the whole query to
-  that interval, click again to clear.
+- **Drill-down timescale (top)** — a colourful eon/era → period → epoch → age
+  picker pinned to the top of the page; pick an interval to filter the whole query,
+  and the bar doubles as the time machine (a playhead you drag or sweep). It's the
+  app's only interval picker and its colour key.
+- **Ancient air & climate** — for the selected time, an inline readout of modelled
+  atmospheric **CO₂**, **O₂** and global mean **temperature** (after Berner's
+  GEOCARBSULF / Royer and Scotese), updating live as you move through deep time.
 - **Diversity panel** — a live breakdown of the current results by period, country
   and formation, plus total localities and occurrences.
 - **Density view** — aggregates localities into weighted hexbins so fossil-rich
   regions and sampling hot-spots stand out when zoomed out.
-- **Interactive legend** — click a period to isolate points of that age.
+- **Collections at a site** — when several collections sit at one point, the locality
+  view lists them all and lets you switch between them inline (no external page).
 - **Bedrock context & references** — clicking a locality looks up the rock unit and
   lithology at that spot from [Macrostrat](https://macrostrat.org/), and shows the
   primary bibliographic **reference** the data was recorded from (with links to the

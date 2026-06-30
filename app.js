@@ -210,37 +210,13 @@ const loadSet = (key) => { try { return new Set(JSON.parse(localStorage.getItem(
 const saveSet = (key, set) => { try { localStorage.setItem(key, JSON.stringify([...set])); } catch (e) { /* private mode */ } };
 
 /* -------------------------------------------------------- Build controls --- */
+/* Rebuilds the colour-blind ramp (the legend list itself was retired — the top
+ * timescale is the colour key now). Kept as buildLegend() so its many call sites
+ * still refresh the ramp after the bands or cb-mode change. */
 function buildLegend() {
   buildCbMap();
-  const ul = $("legend-list");
-  ul.innerHTML = "";
-  // Youngest at the top, like a stratigraphic column read from the surface down.
-  for (const p of [...BANDS].sort((a, b) => a.min - b.min)) {
-    const li = document.createElement("li");
-    li.dataset.period = p.name;
-    li.title = "Click to isolate this period on the globe";
-    if (p.name === legendSel) li.classList.add("on");
-    li.innerHTML = `<span class="swatch" style="background:${bandColor(p)}"></span>
-      ${esc(p.name)}<span class="age">${fmtMa(p.max)}–${fmtMa(p.min)}</span>${tmIcon(p.max, p.min)}`;
-    ul.appendChild(li);
-  }
 }
-
-/* Interactive legend: clicking a period isolates points of that age on the globe
- * (dimming the rest), without re-querying PBDB. Click again to clear. */
-let legendSel = null;
-function pointPaint(d) {
-  if (legendSel) {
-    const b = bandFor(+d.eag || 0);
-    if (!b || b.name !== legendSel) return "rgba(150,160,180,0.12)";
-  }
-  return d.color;
-}
-function setLegendFilter(name) {
-  legendSel = legendSel === name ? null : name;
-  buildLegend();
-  globe.pointColor(globe.pointColor()); // re-trigger the colour accessor
-}
+function pointPaint(d) { return d.color; }
 
 /* ----------------------------------------------- Geological timescale --- */
 /* Full ICS timescale (eons → eras → periods → epochs → ages), fetched live
@@ -388,6 +364,74 @@ function drillNodes(sel) {
   return list;
 }
 
+/* ----------------------------------------- Ancient atmosphere & climate --- */
+/* Modelled Phanerozoic atmosphere and climate, sampled across deep time and
+ * linearly interpolated. CO₂ and O₂ follow Berner's GEOCARBSULF / Royer
+ * compilations; global mean surface temperature follows Scotese (2021). These
+ * are coarse model estimates with wide uncertainty — meant for orientation, not
+ * precision — and whole-atmosphere figures aren't meaningful before ~541 Ma. */
+const PALEOCLIM = [ // [Ma, CO2 ppm, O2 %, mean surface temp °C]
+  [0, 420, 21, 14.5], [20, 400, 21, 16.5], [35, 560, 21, 18.5], [50, 850, 20, 21],
+  [66, 600, 24, 23], [90, 900, 26, 26], [120, 1200, 28, 24], [145, 1100, 26, 22],
+  [170, 1600, 25, 20], [200, 1900, 23, 19], [230, 1700, 18, 20], [250, 2100, 16, 24],
+  [280, 400, 30, 16], [300, 350, 32, 13], [330, 500, 28, 18], [360, 1400, 22, 20],
+  [400, 2200, 18, 21], [420, 3000, 16, 22], [444, 4000, 15, 17], [460, 4200, 14, 24],
+  [485, 4800, 14, 24], [510, 5500, 13, 24], [541, 6000, 13, 22],
+];
+const CLIM_TODAY = { co2: 420, o2: 21, temp: 14.5 };
+
+/* Interpolate the climate anchors at an age (Ma); null beyond the Phanerozoic. */
+function climateAt(ma) {
+  if (ma == null || ma > 541) return null;
+  const d = PALEOCLIM;
+  if (ma <= d[0][0]) return { co2: d[0][1], o2: d[0][2], temp: d[0][3] };
+  for (let i = 1; i < d.length; i++) {
+    if (ma <= d[i][0]) {
+      const [a0, c0, o0, t0] = d[i - 1], [a1, c1, o1, t1] = d[i], f = (ma - a0) / (a1 - a0);
+      return { co2: c0 + (c1 - c0) * f, o2: o0 + (o1 - o0) * f, temp: t0 + (t1 - t0) * f };
+    }
+  }
+  const z = d[d.length - 1]; return { co2: z[1], o2: z[2], temp: z[3] };
+}
+
+/* The age (Ma) the panels describe: midpoint of a custom range / time-machine
+ * window, else the selected interval's midpoint, else the present. */
+function currentAgeMa() {
+  const mx = $("f-maxma").value, mn = $("f-minma").value;
+  if (mx || mn) return (+mx + +mn) / 2;
+  if (selectedInterval) { const it = intByName(selectedInterval); if (it) return (it.max + it.min) / 2; }
+  return 0;
+}
+
+/* Paint the "ancient air & climate" card for an age (defaults to the current
+ * time context). Bars are scaled to the full Phanerozoic range of each measure. */
+function renderPaleoclimate(ma) {
+  const box = $("paleoclimate");
+  if (!box) return;
+  if (ma === undefined) ma = currentAgeMa();
+  box.classList.remove("hidden");
+  const ageLbl = (ma == null || ma < 1) ? "Present day" : `~${fmtMa(ma)} Ma`;
+  const c = climateAt(ma);
+  if (!c) {
+    box.innerHTML = `<h3>Ancient air &amp; climate <span class="climate-age">${esc(ageLbl)}</span></h3>
+      <p class="muted-note">No reliable whole-atmosphere estimate before ~541 Ma (the Precambrian).</p>`;
+    return;
+  }
+  const bar = (frac, cls) => `<div class="cl-bar"><i class="${cls}" style="width:${Math.max(2, Math.min(100, frac * 100)).toFixed(0)}%"></i></div>`;
+  const co2x = c.co2 / CLIM_TODAY.co2;
+  const co2note = co2x >= 1.15 ? `${co2x.toFixed(1)}× today` : co2x <= 0.85 ? `${co2x.toFixed(1)}× today` : "≈ today";
+  const dO2 = c.o2 - CLIM_TODAY.o2;
+  const o2note = Math.abs(dO2) < 1 ? "≈ today" : `${dO2 > 0 ? "+" : ""}${dO2.toFixed(0)} pts vs today`;
+  const dT = c.temp - CLIM_TODAY.temp;
+  const tnote = Math.abs(dT) < 0.6 ? "≈ today" : `${dT > 0 ? "+" : ""}${dT.toFixed(0)}° vs today`;
+  box.innerHTML = `
+    <h3>Ancient air &amp; climate <span class="climate-age">${esc(ageLbl)}</span></h3>
+    <div class="climate-row"><span class="cl-k">CO₂</span>${bar(c.co2 / 6000, "co2")}<span class="cl-v">${Math.round(c.co2).toLocaleString()} ppm <small>${co2note}</small></span></div>
+    <div class="climate-row"><span class="cl-k">O₂</span>${bar(c.o2 / 35, "o2")}<span class="cl-v">${c.o2.toFixed(0)}% <small>${o2note}</small></span></div>
+    <div class="climate-row"><span class="cl-k">Temp</span>${bar((c.temp - 8) / 22, "temp")}<span class="cl-v">${c.temp.toFixed(0)} °C <small>${tnote}</small></span></div>
+    <small class="climate-note">Modelled estimates — CO₂/O₂ after GEOCARBSULF (Berner, Royer), temperature after Scotese (2021). Broad uncertainty.</small>`;
+}
+
 let topScaleWired = false;
 function buildTopScale() {
   const host = $("timescale");
@@ -501,6 +545,7 @@ function syncTopScale() {
 
   $("ts-summary").innerHTML = tsSummaryHtml();
   $("ts-clear").classList.toggle("hidden", !selectedInterval);
+  renderPaleoclimate(); // air & climate for the current time context
 }
 buildTopScale(); // draw from the built-in periods immediately; refined once the live scale loads
 
@@ -1005,11 +1050,9 @@ function renderDensity() {
     globe.pointsData(currentRecs);
     applyPointSize(alt);
     $("density-legend").classList.add("hidden");
-    $("geo-legend").classList.remove("hidden");
     return;
   }
   globe.pointsData([]);
-  $("geo-legend").classList.add("hidden");
   $("density-legend").classList.remove("hidden");
   let bins = gridBin(currentRecs, densityCellDeg(alt));
   bins.sort((a, b) => b.count - a.count);
@@ -1042,7 +1085,6 @@ function applyLayerMode() {
     globe.labelsData([]);
     globe.pointsData(currentRecs);
     $("density-legend").classList.add("hidden");
-    $("geo-legend").classList.remove("hidden");
   }
 }
 
@@ -1152,6 +1194,15 @@ async function updatePaleoGlobe() {
 }
 
 /* -------------------------------------------------- Locality detail view --- */
+/* Every collection (point) plotted at the same coordinates as `d` — different
+ * beds, ages or studies recorded at one site. Lets you browse them inline rather
+ * than opening each from an external page. */
+function collectionsAtSite(d) {
+  const key = (r) => `${(+r._mlat).toFixed(3)},${(+r._mlng).toFixed(3)}`;
+  const k = key(d);
+  return currentRecs.filter((r) => key(r) === k);
+}
+
 let openToken = 0;
 async function openLocality(d) {
   const panel = $("detail");
@@ -1163,6 +1214,23 @@ async function openLocality(d) {
   const collNo = String(d.oid || "").replace(/\D/g, "");
   const place = [d.stp, countryName(d.cc2)].filter(Boolean).join(", ");
   const mapsHref = `https://www.google.com/maps/search/?api=1&query=${d._mlat},${d._mlng}`;
+
+  // Other collections plotted at this exact spot — show them as an inline,
+  // switchable list so the various collections at the point can be browsed here.
+  const site = collectionsAtSite(d);
+  const siteHtml = site.length > 1 ? `
+    <div class="site-colls">
+      <div class="site-colls-head">${site.length} collections at this site — tap to view</div>
+      <div class="site-colls-list">
+        ${site.map((r) => {
+          const cur = String(r.oid) === String(d.oid);
+          return `<button type="button" class="coll-row${cur ? " on" : ""}" data-oid="${esc(String(r.oid))}">
+            <span class="coll-dot" style="background:${r.color}"></span>
+            <span class="coll-nm">${esc(r.nam || "Unnamed collection")}</span>
+            <span class="coll-age" style="color:${r.color}">${esc(r.oei || fmtAge(r.eag, r.lag))}</span></button>`;
+        }).join("")}
+      </div>
+    </div>` : "";
 
   body.innerHTML = `
     <h2>${esc(d.nam || "Unnamed locality")}</h2>
@@ -1178,6 +1246,7 @@ async function openLocality(d) {
       ${d._plat != null ? `<br/><b>Paleo-coords (then):</b> ${d._plat.toFixed(1)}, ${d._plng.toFixed(1)}` : ""}
       ${d.env ? `<br/><b>Environment:</b> ${esc(d.env)}` : ""}
     </div>
+    ${siteHtml}
     <div class="chips">
       <a class="chip" target="_blank" rel="noopener" href="${mapsHref}">📍 Google Maps</a>
       <a class="chip" target="_blank" rel="noopener"
@@ -1903,7 +1972,7 @@ $("btn-clear").addEventListener("click", () => {
   setRegion("");
   $("f-view").checked = false;
   $("btn-download").disabled = true; $("f-export").disabled = true;
-  legendSel = null; buildLegend();
+  buildLegend();
   if (typeof tmStop === "function") tmStop();
   currentTaxon = ""; updateTaxonInfo("");
   currentRecs = [];
@@ -1916,6 +1985,13 @@ $("btn-download").addEventListener("click", exportResults);
 $("detail-close").addEventListener("click", () => {
   $("detail").classList.add("hidden");
   $("timescale").classList.remove("detail-open");
+});
+// Switch the detail view to another collection at the same site (inline browse).
+$("detail").addEventListener("click", (e) => {
+  const row = e.target.closest(".coll-row[data-oid]");
+  if (!row || row.classList.contains("on")) return;
+  const rec = currentRecs.find((r) => String(r.oid) === row.dataset.oid);
+  if (rec) openLocality(rec);
 });
 $("panel-toggle").addEventListener("click", () => $("panel").classList.remove("collapsed"));
 $("panel-close").addEventListener("click", () => $("panel").classList.add("collapsed"));
@@ -2151,6 +2227,7 @@ function tmSetAge(ma) {
   tmKnob.style.left = ((TM_MAX - tmAgeMa) / TM_MAX * 100).toFixed(2) + "%";
   const b = bandFor(tmAgeMa);
   tmLabel.textContent = `${tmAgeMa} Ma${b ? " · " + b.name : ""}`;
+  renderPaleoclimate(tmAgeMa); // live air/climate readout as the playhead moves
 }
 async function tmApply() {
   const age = tmAge(), half = +tmBand.value;
@@ -2277,11 +2354,6 @@ buildSamples();
 /* =========================================================================
  * Remaining wiring — interactive legend, colour & density toggles, buttons.
  * ========================================================================= */
-$("legend-list").addEventListener("click", (e) => {
-  if (e.target.closest(".tm-set")) return; // the ⏳ icon has its own handler
-  const li = e.target.closest("[data-period]");
-  if (li) setLegendFilter(li.dataset.period);
-});
 $("f-cb").addEventListener("change", (e) => {
   cbSafe = e.target.checked;
   buildLegend(); buildTopScale(); recolorPoints();

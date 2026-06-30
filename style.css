@@ -171,6 +171,40 @@ button:hover { filter: brightness(1.08); }
 .legend .swatch { width: 14px; height: 14px; border-radius: 3px; flex: 0 0 auto; }
 .legend .age { color: var(--muted); margin-left: auto; font-variant-numeric: tabular-nums; }
 
+/* ===== Ancient atmosphere & climate card ===== */
+.climate { margin-top: 10px; border-top: 1px solid var(--border); padding-top: 12px; }
+.climate.hidden { display: none; }
+.climate h3 {
+  margin: 0 0 10px; font-size: 12px; text-transform: uppercase; color: var(--muted);
+  letter-spacing: 0.4px; display: flex; align-items: baseline; gap: 8px;
+}
+.climate-age { margin-left: auto; color: var(--accent-2); font-weight: 700; letter-spacing: 0; text-transform: none; font-size: 12px; }
+.climate-row { display: flex; align-items: center; gap: 8px; margin: 6px 0; font-size: 12px; }
+.cl-k { flex: 0 0 34px; color: var(--muted); font-weight: 600; }
+.cl-bar { flex: 1; height: 8px; border-radius: 5px; background: #0c1018; border: 1px solid var(--border); overflow: hidden; }
+.cl-bar i { display: block; height: 100%; border-radius: 5px; }
+.cl-bar i.co2 { background: linear-gradient(90deg, #6a7785, #b9651f); }
+.cl-bar i.o2 { background: linear-gradient(90deg, #2b7a9b, #4cc2ff); }
+.cl-bar i.temp { background: linear-gradient(90deg, #3a7bd5, #ff6b4c); }
+.cl-v { flex: 0 0 auto; color: var(--text); font-variant-numeric: tabular-nums; min-width: 92px; text-align: right; }
+.cl-v small { color: var(--muted); font-variant-numeric: normal; }
+.climate-note { display: block; color: var(--muted); font-size: 10.5px; line-height: 1.35; margin-top: 8px; }
+
+/* ===== Collections at one site (detail panel) ===== */
+.site-colls { margin: 12px 0 4px; }
+.site-colls-head { font-size: 12px; font-weight: 600; color: var(--accent-2); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 6px; }
+.site-colls-list { display: flex; flex-direction: column; gap: 4px; max-height: 168px; overflow-y: auto; }
+.coll-row {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  padding: 6px 8px; border-radius: 8px; cursor: pointer; font-size: 12px;
+  background: #0c1018; border: 1px solid var(--border); color: var(--text);
+}
+.coll-row:hover { border-color: var(--accent); }
+.coll-row.on { border-color: var(--accent-2); background: #161b27; cursor: default; }
+.coll-dot { width: 10px; height: 10px; border-radius: 3px; flex: 0 0 auto; }
+.coll-nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.coll-age { flex: 0 0 auto; font-size: 11px; font-weight: 600; }
+
 .panel-foot { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 12px; display: flex; flex-direction: column; gap: 10px; }
 .paleo-note { color: var(--accent-2); font-size: 11px; line-height: 1.35; margin-top: -4px; }
 .paleo-note.hidden { display: none; }
