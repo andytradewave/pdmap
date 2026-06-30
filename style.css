@@ -364,34 +364,82 @@ button:hover { filter: brightness(1.08); }
 .chip .tm-set { margin-left: 6px; padding: 1px 5px; }
 .tm-set:hover { background: var(--accent-2); color: #04121c; border-color: var(--accent-2); filter: none; }
 
-/* ===== Geologic timescale strip ===== */
-.timescale {
-  position: fixed; bottom: 14px; left: 360px; right: 16px; z-index: 14;
-  display: flex; align-items: stretch; gap: 8px; pointer-events: none;
+/* ===== Geologic timescale (top, drill-down) =====
+   Pinned to the top of the page. A single summary line is shown by default;
+   hovering opens the full proportional stack (periods ▸ epochs ▸ ages). */
+.tscale {
+  position: fixed; top: 12px; left: 360px; right: 16px; z-index: 16;
+  display: flex; align-items: flex-start; gap: 8px; pointer-events: none;
 }
-.timescale.hidden { display: none; }
-/* When the locality detail panel (380px, right) is open, pull the strip clear of it. */
-.timescale.detail-open { right: 396px; }
-.ts-track {
-  pointer-events: auto; flex: 1; display: flex; height: 30px;
-  border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
-  box-shadow: 0 6px 20px #0009;
+.tscale.hidden { display: none; }
+/* When the locality detail panel (380px, right) is open, pull the bar clear of it. */
+.tscale.detail-open { right: 396px; }
+.tscale-inner {
+  pointer-events: auto; flex: 1; min-width: 0;
+  background: var(--panel); backdrop-filter: blur(8px);
+  border: 1px solid var(--border); border-radius: 10px; overflow: hidden;
+  box-shadow: 0 8px 24px #0009;
 }
+
+/* Collapsed summary line — always visible, hidden once the stack opens. */
+.ts-summary { display: flex; height: 34px; cursor: pointer; }
+.tscale:hover .ts-summary { display: none; }
+
+/* The full drill-down stack — collapsed to nothing until hover. */
+.ts-stack {
+  max-height: 0; opacity: 0; overflow: hidden;
+  transition: max-height 0.28s ease, opacity 0.2s ease;
+}
+.tscale:hover .ts-stack { max-height: 70vh; opacity: 1; }
+
+.ts-row { display: flex; height: 30px; border-top: 1px solid #0006; }
+.ts-cap {
+  flex: 0 0 116px; display: flex; align-items: center; padding: 0 8px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.2px;
+  color: var(--muted); background: var(--panel-solid);
+  border-right: 1px solid var(--border);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ts-bar { flex: 1; display: flex; min-width: 0; }
+
+/* Compressed-Precambrian placeholder in the period row, kept narrow so it lines
+   up under the three eon cells in the era row above. */
+.ts-spacer {
+  min-width: 0; display: flex; align-items: center; justify-content: center;
+  border-right: 1px solid #0006; overflow: hidden;
+  background: repeating-linear-gradient(-45deg, #1a2130, #1a2130 5px, #141a26 5px, #141a26 10px);
+}
+.ts-spacer span {
+  font-size: 9px; font-weight: 700; letter-spacing: 0.3px; text-transform: uppercase;
+  color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  padding: 0 4px;
+}
+
 .ts-seg {
-  position: relative; min-width: 0; padding: 0; margin: 0; border: none;
+  position: relative; min-width: 0; padding: 0 3px; margin: 0; border: none;
   border-right: 1px solid #0006; border-radius: 0; color: #04121c;
   font-size: 11px; font-weight: 700; cursor: pointer;
   display: flex; align-items: center; justify-content: center; overflow: hidden;
 }
 .ts-seg:last-child { border-right: none; }
 .ts-seg:hover { filter: brightness(1.12); }
-.ts-seg.on { box-shadow: inset 0 0 0 2px var(--text), inset 0 0 0 4px #04121c; }
-.ts-seg-lbl { pointer-events: none; white-space: nowrap; text-shadow: 0 1px 1px #fff7; }
+.ts-seg.on { box-shadow: inset 0 0 0 2px var(--text), inset 0 0 0 4px #04121c; z-index: 1; }
+.ts-seg.none {
+  flex: 1; cursor: default; color: var(--muted); font-weight: 600;
+  background: var(--panel-solid); justify-content: flex-start; padding: 0 12px;
+}
+.ts-summary .ts-seg { flex: 1; }
+.ts-seg-lbl {
+  pointer-events: none; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; max-width: 100%; text-shadow: 0 1px 1px #fff7;
+}
+.ts-seg.none .ts-seg-lbl { text-shadow: none; }
+
 .ts-clear {
-  pointer-events: auto; flex: 0 0 auto; width: 30px; height: 30px; padding: 0;
+  pointer-events: auto; flex: 0 0 auto; width: 34px; height: 34px; padding: 0;
   border-radius: 8px; font-size: 13px; font-weight: 600;
   background: var(--panel-solid); color: var(--text); border: 1px solid var(--border);
-  box-shadow: 0 6px 20px #0009;
+  box-shadow: 0 8px 24px #0009;
 }
 .ts-clear.hidden { display: none; }
 
@@ -432,8 +480,8 @@ button:hover { filter: brightness(1.08); }
   .suggest .pick { opacity: 1; }
   .tm-set { opacity: 1; }
 
-  /* The bottom timescale strip would collide with the bottom sheet + toggle. */
-  .timescale { display: none !important; }
+  /* The timescale bar would collide with the bottom sheet + toggle. */
+  .tscale { display: none !important; }
 
   /* Bigger touch targets */
   .fld input[type="text"], .fld input[type="number"], .fld select { padding: 11px 12px; }

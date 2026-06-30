@@ -289,61 +289,150 @@ const fmtMa = (v) => v == null ? "?" :
 buildLegend(); // draw the offline fallback legend immediately
 
 /* -------------------------------------------------- Geologic timescale --- */
-/* A horizontal Phanerozoic timescale along the bottom (à la PBDB Navigator):
- * each period is a proportionally-sized, colour-matched segment; clicking one
- * filters the whole query to that interval. Reflects the active interval. */
-const TS_ABBR = { Quaternary: "Q", Neogene: "Ng", Paleogene: "Pg", Cretaceous: "K",
-  Jurassic: "J", Triassic: "Tr", Permian: "P", Carboniferous: "C", Devonian: "D",
-  Silurian: "S", Ordovician: "O", Cambrian: "Є" };
-const tsAbbr = (name) => TS_ABBR[name] || name.slice(0, 2);
+/* A colourful, drill-down timescale pinned to the top of the page. Two aligned
+ * header rows give the big picture — an eon/era row over the iconic period
+ * "rainbow" — covering all of geological time. The Precambrian is ~8× longer
+ * than the Phanerozoic, so its three eons are shown compressed to a fixed width
+ * on the left (with a matching spacer under them in the period row) rather than
+ * crushing the rainbow. Selecting any interval opens finer rows beneath it,
+ * zoomed to fill the width (an era's periods, a period's epochs, an epoch's
+ * ages…), so everything the tree exposes is reachable by drilling in. The whole
+ * stack auto-collapses to a single line showing the current pick and re-opens on
+ * hover. Picks drive the same selectedInterval the search uses. */
+const intByName = (name) => INTERVALS.find((x) => x.name === name);
+const DEPTH = { eon: 0, era: 1, period: 2, epoch: 3, age: 4 };
+const PRECAMBRIAN_EON_FLEX = 60; // fixed (compressed) width per Precambrian eon
 
-function buildTimescale() {
-  const track = $("ts-track");
-  if (!track) return;
-  // Phanerozoic only — the Precambrian is ~8× longer and would crush the scale.
-  const periods = BANDS.filter((b) => b.max <= 545 && b.max - b.min > 0)
-    .slice().sort((a, b) => b.max - a.max); // oldest on the left, present on the right
-  if (!periods.length) return;
-  track.innerHTML = periods.map((p) => {
-    const dur = p.max - p.min;
-    return `<button type="button" class="ts-seg" data-period="${esc(p.name)}"
-      style="flex:${dur} ${dur} 0;background:${bandColor(p)}"
-      title="${esc(p.name)} · ${fmtMa(p.max)}–${fmtMa(p.min)} Ma — click to filter">
-      <span class="ts-seg-lbl">${esc(tsAbbr(p.name))}</span></button>`;
-  }).join("");
-  $("timescale").classList.remove("hidden");
-  updateTimescaleActive();
+/* Walk a node up to its ancestor of the given level (or itself if it matches). */
+function ancestorOfType(node, type) {
+  let it = node;
+  while (it) {
+    if (it.type === type) return it;
+    it = it.parent != null ? intById.get(it.parent) : null;
+  }
+  return null;
 }
 
-function updateTimescaleActive() {
-  const track = $("ts-track");
-  if (!track) return;
-  track.querySelectorAll(".ts-seg").forEach((s) =>
-    s.classList.toggle("on", s.dataset.period === selectedInterval));
+/* Phanerozoic = younger than ~545 Ma. The live data also tags it via the
+ * Phanerozoic eon, but the age cut-off works for the offline fallback too. */
+function scaleOfType(type) {
+  return INTERVALS.filter((it) => it.type === type && it.max <= 545 && it.max - it.min > 0)
+    .sort((a, b) => b.max - a.max); // oldest on the left
+}
+function precambrianEons() {
+  return INTERVALS.filter((it) => it.type === "eon" && it.max > 545 && it.max - it.min > 0)
+    .sort((a, b) => b.max - a.max);
+}
+
+/* One proportional, clickable cell. `flex` overrides the duration-based width
+ * (used to compress the Precambrian eons). */
+function tsSegHtml(node, flex) {
+  const f = flex != null ? flex : Math.max(node.max - node.min, 0.0001);
+  const on = node.name === selectedInterval ? " on" : "";
+  const col = node.color ? bandColor(node) : "#9a8aa0";
+  return `<button type="button" class="ts-seg${on}" data-val="${esc(node.name)}"
+    style="flex:${f} ${f} 0;background:${col}"
+    title="${esc(node.name)} · ${esc(node.type)} · ${fmtMa(node.max)}–${fmtMa(node.min)} Ma — click to filter">
+    <span class="ts-seg-lbl">${esc(node.name)}</span></button>`;
+}
+
+/* A non-interactive spacer, sized to line the period row's Phanerozoic cells up
+ * under the era row (over the compressed Precambrian zone). */
+function tsSpacerHtml(flex) {
+  return `<div class="ts-spacer" style="flex:${flex} ${flex} 0"><span>Precambrian</span></div>`;
+}
+
+function tsRowHtml(label, inner) {
+  if (!inner) return "";
+  return `<div class="ts-row"><span class="ts-cap">${esc(label)}</span>
+    <div class="ts-bar">${inner}</div></div>`;
+}
+function rowOf(label, nodes) {
+  if (!nodes || !nodes.length) return "";
+  return tsRowHtml(label, nodes.map((n) => tsSegHtml(n)).join(""));
+}
+
+/* The collapsed line: the current pick as a single coloured cell, or a prompt. */
+function tsSummaryHtml() {
+  const it = selectedInterval ? intByName(selectedInterval) : null;
+  if (!it) return `<div class="ts-seg none">
+    <span class="ts-seg-lbl">All time — hover to choose an interval ▾</span></div>`;
+  const col = it.color ? bandColor(it) : "#9a8aa0";
+  return `<button type="button" class="ts-seg on" data-val="${esc(it.name)}"
+    style="background:${col}" title="${esc(intervalPath(it.name))}">
+    <span class="ts-seg-lbl">${esc(it.name)} · ${esc(it.type)} · ${fmtMa(it.max)}–${fmtMa(it.min)} Ma</span></button>`;
+}
+
+/* The chain of nodes whose children we zoom in beneath the header: from the
+ * selection up to its header anchor (a Phanerozoic period, or a Precambrian
+ * eon), or just the selection itself when it already sits at/above that level
+ * (e.g. an era). Each link adds one finer row, so a deep pick fans the whole
+ * lineage open. */
+function zoomPath(sel) {
+  const anchor = sel.max <= 545 ? "period" : "eon";
+  const list = [];
+  let it = sel;
+  while (it) {
+    list.unshift(it);
+    if (DEPTH[it.type] <= DEPTH[anchor]) break;
+    it = it.parent != null ? intById.get(it.parent) : null;
+  }
+  return list;
+}
+
+let topScaleWired = false;
+function buildTopScale() {
+  const host = $("timescale");
+  if (!host) return;
+  host.classList.remove("hidden");
+  if (!topScaleWired) {
+    // One delegated handler for every cell, whether in the summary or the stack.
+    host.addEventListener("click", (e) => {
+      const seg = e.target.closest(".ts-seg");
+      if (seg && seg.dataset.val != null) pickInterval(seg.dataset.val);
+    });
+    $("ts-clear").addEventListener("click", () => { if (selectedInterval) pickInterval(""); });
+    topScaleWired = true;
+  }
+  syncTopScale();
+}
+
+/* Re-render the header + zoom rows + summary from the current selection. Cheap;
+ * called after every search and whenever the pick changes. */
+function syncTopScale() {
+  const stack = $("ts-stack");
+  if (!stack) return;
+
+  const eons = precambrianEons();
+  const eras = scaleOfType("era");
+  const periods = scaleOfType("period");
+  const pcFlex = eons.length * PRECAMBRIAN_EON_FLEX; // shared width of the Precambrian zone
+
+  // Header row 1: compressed Precambrian eons + Phanerozoic eras.
+  let html = tsRowHtml("Eon · Era",
+    eons.map((n) => tsSegHtml(n, PRECAMBRIAN_EON_FLEX)).join("") +
+    eras.map((n) => tsSegHtml(n)).join(""));
+  // Header row 2 (the rainbow): a spacer over the Precambrian, then the periods.
+  html += tsRowHtml("Periods",
+    (eons.length ? tsSpacerHtml(pcFlex) : "") + periods.map((n) => tsSegHtml(n)).join(""));
+
+  // Zoom rows: one finer row per link of the selection's lineage below the header.
+  const sel = selectedInterval ? intByName(selectedInterval) : null;
+  if (sel) {
+    for (const node of zoomPath(sel)) {
+      if (node.children && node.children.length) {
+        const lvl = node.children[0].type;
+        const label = (lvl[0].toUpperCase() + lvl.slice(1)) + "s · " + node.name;
+        html += rowOf(label, node.children);
+      }
+    }
+  }
+  stack.innerHTML = html;
+
+  $("ts-summary").innerHTML = tsSummaryHtml();
   $("ts-clear").classList.toggle("hidden", !selectedInterval);
 }
-
-/* Clicking a period sets it as the interval filter (clearing any custom range,
- * which would otherwise override it) and re-runs the search; clicking the active
- * period again clears the filter. Mirrors choosing an interval in the picker. */
-function filterToTimescale(name) {
-  if (selectedInterval === name) {
-    selectedInterval = ""; $("f-interval").value = ""; $("f-interval").title = "";
-  } else {
-    selectedInterval = name; $("f-interval").value = name;
-    $("f-interval").title = intervalPath(name);
-  }
-  $("f-maxma").value = ""; $("f-minma").value = "";
-  intHint();
-  search();
-}
-
-$("ts-track").addEventListener("click", (e) => {
-  const seg = e.target.closest(".ts-seg");
-  if (seg) filterToTimescale(seg.dataset.period);
-});
-$("ts-clear").addEventListener("click", () => { if (selectedInterval) filterToTimescale(selectedInterval); });
-buildTimescale(); // draw from the built-in periods immediately; refined once the live scale loads
+buildTopScale(); // draw from the built-in periods immediately; refined once the live scale loads
 
 async function loadTimescale() {
   try {
@@ -358,7 +447,7 @@ async function loadTimescale() {
     // Colour points and the legend from every period now available, so anything
     // back to the Hadean gets its proper ICS colour instead of falling to grey.
     const periods = INTERVALS.filter((it) => it.type === "period");
-    if (periods.length) { BANDS = periods; buildLegend(); buildTimescale(); recolorPoints(); }
+    if (periods.length) { BANDS = periods; buildLegend(); buildTopScale(); recolorPoints(); }
   } catch (e) { /* offline — keep the built-in periods */ }
 }
 
@@ -645,7 +734,7 @@ async function search() {
     if (usePaleo) updatePaleoGlobe(); // refresh the reconstruction for the new age
     renderStats(recs);
     writeHash();
-    updateTimescaleActive(); // reflect the active interval on the bottom strip
+    syncTopScale(); // reflect the active interval on the top timescale
 
     const shown = recs.length;
     const noun = shown === 1 ? "locality" : "localities";
@@ -2235,7 +2324,7 @@ $("legend-list").addEventListener("click", (e) => {
 });
 $("f-cb").addEventListener("change", (e) => {
   cbSafe = e.target.checked;
-  buildLegend(); buildTimescale(); recolorPoints();
+  buildLegend(); buildTopScale(); recolorPoints();
   writeHash();
 });
 $("f-density").addEventListener("change", () => { applyLayerMode(); writeHash(); });

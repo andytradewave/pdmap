@@ -197,10 +197,16 @@
 
   <button id="panel-toggle" title="Show/hide panel">☰</button>
 
-  <!-- ===== Geologic timescale strip (click a period to filter) ===== -->
-  <div id="timescale" class="timescale hidden" aria-label="Geologic timescale — click a period to filter the map">
-    <div id="ts-track" class="ts-track"></div>
-    <button type="button" id="ts-clear" class="ts-clear hidden" title="Clear the period filter">✕</button>
+  <!-- ===== Geologic timescale (top) — drill-down period picker =====
+       Collapsed to a single line showing the current pick; hover to open the
+       full stack. Selecting a period reveals its epochs below, an epoch its
+       ages — each row zoomed to fill the width. -->
+  <div id="timescale" class="tscale hidden" aria-label="Geologic timescale — pick a time interval to filter the map">
+    <div class="tscale-inner">
+      <div id="ts-summary" class="ts-summary"></div>
+      <div id="ts-stack" class="ts-stack"></div>
+    </div>
+    <button type="button" id="ts-clear" class="ts-clear hidden" title="Clear the time filter">✕</button>
   </div>
 
   <!-- ===== Detail panel (locality + taxa) ===== -->
