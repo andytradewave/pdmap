@@ -289,16 +289,16 @@ const fmtMa = (v) => v == null ? "?" :
 buildLegend(); // draw the offline fallback legend immediately
 
 /* -------------------------------------------------- Geologic timescale --- */
-/* A colourful, drill-down timescale pinned to the top of the page. Two aligned
- * header rows give the big picture — an eon/era row over the iconic period
- * "rainbow" — covering all of geological time. The Precambrian is ~8× longer
- * than the Phanerozoic, so its three eons are shown compressed to a fixed width
- * on the left (with a matching spacer under them in the period row) rather than
- * crushing the rainbow. Selecting any interval opens finer rows beneath it,
- * zoomed to fill the width (an era's periods, a period's epochs, an epoch's
- * ages…), so everything the tree exposes is reachable by drilling in. The whole
- * stack auto-collapses to a single line showing the current pick and re-opens on
- * hover. Picks drive the same selectedInterval the search uses. */
+/* A colourful, drill-down timescale pinned to the top of the page. The header
+ * is a single eon/era row covering all of geological time — the three Precambrian
+ * eons compressed to a fixed width on the left (they're ~8× longer than the
+ * Phanerozoic and would otherwise crush the scale), then the Phanerozoic eras.
+ * Selecting an eon/era opens its periods below it, a period opens its epochs, an
+ * epoch its ages — each row zoomed to fill the width and showing only the
+ * children of the chosen branch, so everything the tree exposes is reachable by
+ * drilling in. The whole stack auto-collapses to a single line showing the
+ * current pick and re-opens on hover. Picks drive the same selectedInterval the
+ * search uses. */
 const intByName = (name) => INTERVALS.find((x) => x.name === name);
 const DEPTH = { eon: 0, era: 1, period: 2, epoch: 3, age: 4 };
 const PRECAMBRIAN_EON_FLEX = 60; // fixed (compressed) width per Precambrian eon
@@ -325,31 +325,24 @@ function precambrianEons() {
 }
 
 /* One proportional, clickable cell. `flex` overrides the duration-based width
- * (used to compress the Precambrian eons). */
-function tsSegHtml(node, flex) {
+ * (used to compress the Precambrian eons). `active` names get an in-path marker
+ * (ancestors of the current pick); an exact match gets the stronger selected
+ * outline. */
+function tsSegHtml(node, flex, active) {
   const f = flex != null ? flex : Math.max(node.max - node.min, 0.0001);
-  const on = node.name === selectedInterval ? " on" : "";
+  const cls = node.name === selectedInterval ? " on"
+    : (active && active.has(node.name) ? " active" : "");
   const col = node.color ? bandColor(node) : "#9a8aa0";
-  return `<button type="button" class="ts-seg${on}" data-val="${esc(node.name)}"
+  return `<button type="button" class="ts-seg${cls}" data-val="${esc(node.name)}"
     style="flex:${f} ${f} 0;background:${col}"
     title="${esc(node.name)} · ${esc(node.type)} · ${fmtMa(node.max)}–${fmtMa(node.min)} Ma — click to filter">
     <span class="ts-seg-lbl">${esc(node.name)}</span></button>`;
-}
-
-/* A non-interactive spacer, sized to line the period row's Phanerozoic cells up
- * under the era row (over the compressed Precambrian zone). */
-function tsSpacerHtml(flex) {
-  return `<div class="ts-spacer" style="flex:${flex} ${flex} 0"><span>Precambrian</span></div>`;
 }
 
 function tsRowHtml(label, inner) {
   if (!inner) return "";
   return `<div class="ts-row"><span class="ts-cap">${esc(label)}</span>
     <div class="ts-bar">${inner}</div></div>`;
-}
-function rowOf(label, nodes) {
-  if (!nodes || !nodes.length) return "";
-  return tsRowHtml(label, nodes.map((n) => tsSegHtml(n)).join(""));
 }
 
 /* The collapsed line: the current pick as a single coloured cell, or a prompt. */
@@ -363,18 +356,18 @@ function tsSummaryHtml() {
     <span class="ts-seg-lbl">${esc(it.name)} · ${esc(it.type)} · ${fmtMa(it.max)}–${fmtMa(it.min)} Ma</span></button>`;
 }
 
-/* The chain of nodes whose children we zoom in beneath the header: from the
- * selection up to its header anchor (a Phanerozoic period, or a Precambrian
- * eon), or just the selection itself when it already sits at/above that level
- * (e.g. an era). Each link adds one finer row, so a deep pick fans the whole
- * lineage open. */
-function zoomPath(sel) {
-  const anchor = sel.max <= 545 ? "period" : "eon";
+/* The chain of nodes whose children we drill in beneath the header: from the
+ * selection's eon/era (the level shown in the header) down to the selection
+ * itself. Each link adds one finer row showing only that branch's children, so
+ * the periods row holds just the selected eon/era's periods, then its epochs,
+ * then its ages. */
+function drillNodes(sel) {
+  const top = sel.max <= 545 ? "era" : "eon"; // the level the header already shows
   const list = [];
   let it = sel;
   while (it) {
     list.unshift(it);
-    if (DEPTH[it.type] <= DEPTH[anchor]) break;
+    if (DEPTH[it.type] <= DEPTH[top]) break;
     it = it.parent != null ? intById.get(it.parent) : null;
   }
   return list;
@@ -397,33 +390,36 @@ function buildTopScale() {
   syncTopScale();
 }
 
-/* Re-render the header + zoom rows + summary from the current selection. Cheap;
+/* Re-render the header + drill rows + summary from the current selection. Cheap;
  * called after every search and whenever the pick changes. */
 function syncTopScale() {
   const stack = $("ts-stack");
   if (!stack) return;
 
+  const sel = selectedInterval ? intByName(selectedInterval) : null;
+  // Names along the selection's lineage, so ancestors of the pick get an in-path
+  // marker even though only the pick itself is the strong-outlined "selected".
+  const active = new Set();
+  for (let it = sel; it; it = it.parent != null ? intById.get(it.parent) : null) active.add(it.name);
+
   const eons = precambrianEons();
   const eras = scaleOfType("era");
-  const periods = scaleOfType("period");
-  const pcFlex = eons.length * PRECAMBRIAN_EON_FLEX; // shared width of the Precambrian zone
-
-  // Header row 1: compressed Precambrian eons + Phanerozoic eras.
+  // Header: a single eon/era row. Precambrian eons are compressed.
   let html = tsRowHtml("Eon · Era",
-    eons.map((n) => tsSegHtml(n, PRECAMBRIAN_EON_FLEX)).join("") +
-    eras.map((n) => tsSegHtml(n)).join(""));
-  // Header row 2 (the rainbow): a spacer over the Precambrian, then the periods.
-  html += tsRowHtml("Periods",
-    (eons.length ? tsSpacerHtml(pcFlex) : "") + periods.map((n) => tsSegHtml(n)).join(""));
+    eons.map((n) => tsSegHtml(n, PRECAMBRIAN_EON_FLEX, active)).join("") +
+    eras.map((n) => tsSegHtml(n, null, active)).join(""));
 
-  // Zoom rows: one finer row per link of the selection's lineage below the header.
-  const sel = selectedInterval ? intByName(selectedInterval) : null;
+  // Drill rows: the selected eon/era's periods, then its epochs, then its ages —
+  // only the chosen branch, each row zoomed to fill the width.
   if (sel) {
-    for (const node of zoomPath(sel)) {
+    for (const node of drillNodes(sel)) {
       if (node.children && node.children.length) {
-        const lvl = node.children[0].type;
+        // Oldest on the left, matching the header (the tree keeps them youngest-
+        // first, so sort a copy rather than disturbing it).
+        const kids = [...node.children].sort((a, b) => b.max - a.max);
+        const lvl = kids[0].type;
         const label = (lvl[0].toUpperCase() + lvl.slice(1)) + "s · " + node.name;
-        html += rowOf(label, node.children);
+        html += tsRowHtml(label, kids.map((n) => tsSegHtml(n, null, active)).join(""));
       }
     }
   }

@@ -402,19 +402,6 @@ button:hover { filter: brightness(1.08); }
 }
 .ts-bar { flex: 1; display: flex; min-width: 0; }
 
-/* Compressed-Precambrian placeholder in the period row, kept narrow so it lines
-   up under the three eon cells in the era row above. */
-.ts-spacer {
-  min-width: 0; display: flex; align-items: center; justify-content: center;
-  border-right: 1px solid #0006; overflow: hidden;
-  background: repeating-linear-gradient(-45deg, #1a2130, #1a2130 5px, #141a26 5px, #141a26 10px);
-}
-.ts-spacer span {
-  font-size: 9px; font-weight: 700; letter-spacing: 0.3px; text-transform: uppercase;
-  color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  padding: 0 4px;
-}
-
 .ts-seg {
   position: relative; min-width: 0; padding: 0 3px; margin: 0; border: none;
   border-right: 1px solid #0006; border-radius: 0; color: #04121c;
@@ -424,6 +411,8 @@ button:hover { filter: brightness(1.08); }
 .ts-seg:last-child { border-right: none; }
 .ts-seg:hover { filter: brightness(1.12); }
 .ts-seg.on { box-shadow: inset 0 0 0 2px var(--text), inset 0 0 0 4px #04121c; z-index: 1; }
+/* In-path ancestor of the current pick (e.g. the era whose periods are open). */
+.ts-seg.active { box-shadow: inset 0 0 0 2px #ffffffaa; }
 .ts-seg.none {
   flex: 1; cursor: default; color: var(--muted); font-weight: 600;
   background: var(--panel-solid); justify-content: flex-start; padding: 0 12px;
