@@ -405,13 +405,20 @@ const IMPACTS = [
   ["Kara", 70, 69.1, 64.2, 65], ["Tookoonooka", 128, -27.0, 143.0, 55],
   ["Mistastin", 36, 55.9, -63.3, 28], ["Boltysh", 65.4, 48.8, 32.2, 24],
 ];
-// Major Large Igneous Provinces. [name, Ma, lat, lng, linked event].
+// Major Large Igneous Provinces. [name, Ma, lat, lng, linked event, Wikipedia
+// title — the short display names above rarely match a Wikipedia title (or,
+// worse, match a *different* generic/disambiguation page), so each is pinned.
 const LIPS = [
-  ["Deccan Traps", 66, 19, 74, "end-Cretaceous"], ["Siberian Traps", 252, 67, 90, "end-Permian"],
-  ["CAMP", 201, 20, -40, "end-Triassic"], ["Karoo–Ferrar", 183, -30, 25, "Toarcian event"],
-  ["Emeishan Traps", 259, 26, 103, "Capitanian event"], ["Ontong Java", 121, 0, 160, "Aptian anoxia"],
-  ["Paraná–Etendeka", 134, -25, -50, ""], ["N. Atlantic IP", 56, 65, -10, "PETM"],
-  ["Viluy Traps", 373, 65, 120, "Late Devonian"], ["Columbia River", 16, 46, -118, ""],
+  ["Deccan Traps", 66, 19, 74, "end-Cretaceous", "Deccan Traps"],
+  ["Siberian Traps", 252, 67, 90, "end-Permian", "Siberian Traps"],
+  ["CAMP", 201, 20, -40, "end-Triassic", "Central Atlantic magmatic province"],
+  ["Karoo–Ferrar", 183, -30, 25, "Toarcian event", "Karoo-Ferrar"],
+  ["Emeishan Traps", 259, 26, 103, "Capitanian event", "Emeishan Traps"],
+  ["Ontong Java", 121, 0, 160, "Aptian anoxia", "Ontong Java Plateau"],
+  ["Paraná–Etendeka", 134, -25, -50, "", "Paraná and Etendeka traps"],
+  ["N. Atlantic IP", 56, 65, -10, "PETM", "North Atlantic Igneous Province"],
+  ["Viluy Traps", 373, 65, 120, "Late Devonian", "Viluy traps"],
+  ["Columbia River", 16, 46, -118, "", "Columbia River Basalt Group"],
 ];
 
 /* Linear interpolation over an anchor table keyed by Ma in column 0. */
@@ -459,7 +466,7 @@ function eventsInSpan([min, max]) {
   const im = IMPACTS.filter(([, ma]) => ma >= lo && ma <= hi)
     .map(([name, ma, lat, lng, d]) => ({ type: "impact", name, ma, lat, lng, d }));
   const li = LIPS.filter(([, ma]) => ma >= lo && ma <= hi)
-    .map(([name, ma, lat, lng, ev]) => ({ type: "lip", name, ma, lat, lng, ev }));
+    .map(([name, ma, lat, lng, ev, wiki]) => ({ type: "lip", name, ma, lat, lng, ev, wiki }));
   return [...im, ...li].sort((a, b) => a.ma - b.ma);
 }
 
@@ -478,6 +485,7 @@ function renderPaleoclimate(ma) {
   if (!c) { // Precambrian — atmosphere/almanac estimates aren't meaningful here
     box.innerHTML = head + `<p class="muted-note">No reliable whole-Earth estimates before ~541 Ma (the Precambrian).</p>`
       + (events.length ? eventsHtml(events) : "");
+    if (events.length) enrichEvents();
     return;
   }
 
@@ -503,6 +511,7 @@ function renderPaleoclimate(ma) {
     <div class="wt-row"><span class="wt-k">Seawater ⁸⁷Sr/⁸⁶Sr</span><span class="wt-v">${a.sr.toFixed(4)}</span></div>
     ${eventsHtml(events)}
     <small class="climate-note">Model/proxy estimates — CO₂ after Hönisch/Foster &amp; GEOCARBSULF, O₂ after Berner, temperature after PhanDA/Scotese, day length after rhythmites, sea level after Haq/Miller, Sr after McArthur. Wide uncertainty.</small>`;
+  if (events.length) enrichEvents();
 }
 
 function eventsHtml(events) {
@@ -513,12 +522,15 @@ function eventsHtml(events) {
         + `${fmtMa(e.ma)} Ma · ${fmtLatLng(e.lat, e.lng)}`
         + (e.type === "impact" ? ` · ${e.d} km diameter` : (e.ev ? ` · linked to the ${esc(e.ev)}` : ""));
       return `
-      <div class="wt-event" title="${detail.replace(/"/g, "&quot;")}">
-        <span class="wt-ev-ic">${e.type === "impact" ? "☄️" : "🌋"}</span>
-        <span class="wt-ev-nm">${esc(e.name)}${e.type === "impact" ? " crater" : " (LIP)"}</span>
-        <span class="wt-ev-meta">${fmtMa(e.ma)} Ma${e.type === "impact" ? ` · ${e.d} km` : (e.ev ? ` · ${esc(e.ev)}` : "")}</span>
-        <button type="button" class="wt-ev-fly" data-lat="${e.lat}" data-lng="${e.lng}"
-          data-name="${esc(e.name)}" title="Fly to ${esc(e.name)}" aria-label="Fly to ${esc(e.name)}">🌍</button>
+      <div class="wt-event" data-wiki-name="${esc(e.name)}" data-wiki-type="${e.type}" data-wiki-title="${esc(e.wiki || "")}">
+        <div class="wt-ev-row" title="${detail.replace(/"/g, "&quot;")}">
+          <span class="wt-ev-ic">${e.type === "impact" ? "☄️" : "🌋"}</span>
+          <span class="wt-ev-nm">${esc(e.name)}${e.type === "impact" ? " crater" : " (LIP)"}</span>
+          <span class="wt-ev-meta">${fmtMa(e.ma)} Ma${e.type === "impact" ? ` · ${e.d} km` : (e.ev ? ` · ${esc(e.ev)}` : "")}</span>
+          <button type="button" class="wt-ev-fly" data-lat="${e.lat}" data-lng="${e.lng}"
+            data-name="${esc(e.name)}" title="Fly to ${esc(e.name)}" aria-label="Fly to ${esc(e.name)}">🌍</button>
+        </div>
+        <div class="wt-ev-desc"></div>
       </div>`;
     }).join("")}</div>`;
 }
@@ -526,6 +538,50 @@ function eventsHtml(events) {
 /* Signed decimal degrees → a compact N/S/E/W string, e.g. "21.4°N, 89.5°W". */
 function fmtLatLng(lat, lng) {
   return `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? "N" : "S"}, ${Math.abs(lng).toFixed(1)}°${lng >= 0 ? "E" : "W"}`;
+}
+
+/* --- Wikipedia enrichment for events, mirroring enrichTaxa/fetchWiki below ---
+ * LIPs carry a hand-pinned Wikipedia title (see LIPS above) since their short
+ * display names often match the wrong page (e.g. a generic "large igneous
+ * province" definition, or an unrelated place). Impact craters are reliably
+ * named "X crater" on Wikipedia, so those are found via search — but a title
+ * sharing no word with the event name (e.g. a "list of..." page) is discarded
+ * rather than shown as a wrong description. */
+function titleLooksRelevant(title, name) {
+  const words = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").split(" ").filter((w) => w.length > 2);
+  const nameWords = new Set(words(name));
+  return words(title).some((w) => nameWords.has(w));
+}
+const eventWikiCache = new Map();
+function fetchEventWiki(name, type, pinnedTitle) {
+  const key = `${type}:${name}`;
+  if (eventWikiCache.has(key)) return eventWikiCache.get(key);
+  const p = pinnedTitle
+    ? fetchWiki(pinnedTitle)
+    : fetch(`https://en.wikipedia.org/w/api.php?action=query&list=search&srlimit=1&format=json&origin=*&srsearch=${encodeURIComponent(name + " impact crater")}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => d && d.query && d.query.search && d.query.search[0] && d.query.search[0].title)
+        .then((title) => (title && titleLooksRelevant(title, name) ? fetchWiki(title) : null))
+        .catch(() => null);
+  eventWikiCache.set(key, p);
+  return p;
+}
+
+let eventEnrichToken = 0;
+async function enrichEvents() {
+  const myToken = ++eventEnrichToken; // cancel if the time range changes mid-fetch
+  const cards = [...document.querySelectorAll(".wt-event")];
+  let i = 0;
+  const worker = async () => {
+    while (i < cards.length && myToken === eventEnrichToken) {
+      const card = cards[i++];
+      const info = await fetchEventWiki(card.dataset.wikiName, card.dataset.wikiType, card.dataset.wikiTitle || null);
+      if (myToken !== eventEnrichToken) return;
+      const d = card.querySelector(".wt-ev-desc");
+      if (d && info && info.extract) d.textContent = info.extract;
+    }
+  };
+  await Promise.all(Array.from({ length: 4 }, worker));
 }
 
 let topScaleWired = false;
@@ -2653,14 +2709,19 @@ async function flyToPlace() {
 // phones don't reliably send Enter, so the button is the dependable trigger.
 $("f-place").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); flyToPlace(); } });
 
-// The 🌍 button on each "events around this time" row flies the globe there;
-// the row's title attribute carries the full detail (type, age, coordinates).
+// The 🌍 button on each "events around this time" row flies the globe there
+// (the row's title attribute carries type/age/coordinates); tapping the
+// Wikipedia blurb below it expands the clamped text, same as taxon cards.
 $("paleoclimate").addEventListener("click", (e) => {
   const btn = e.target.closest(".wt-ev-fly");
-  if (!btn) return;
-  globe.controls().autoRotate = false;
-  globe.pointOfView({ lat: +btn.dataset.lat, lng: +btn.dataset.lng, altitude: 1.1 }, 1200);
-  flash(`🌍 ${btn.dataset.name}`);
+  if (btn) {
+    globe.controls().autoRotate = false;
+    globe.pointOfView({ lat: +btn.dataset.lat, lng: +btn.dataset.lng, altitude: 1.1 }, 1200);
+    flash(`🌍 ${btn.dataset.name}`);
+    return;
+  }
+  const desc = e.target.closest(".wt-ev-desc");
+  if (desc) desc.classList.toggle("expanded");
 });
 $("f-place").addEventListener("search", flyToPlace);
 $("btn-place").addEventListener("click", flyToPlace);
