@@ -508,12 +508,24 @@ function renderPaleoclimate(ma) {
 function eventsHtml(events) {
   if (!events.length) return "";
   return `<div class="wt-grp">Events around this time</div>
-    <div class="wt-events">${events.map((e) => `
-      <div class="wt-event">
+    <div class="wt-events">${events.map((e) => {
+      const detail = `${esc(e.name)}${e.type === "impact" ? " impact crater" : " (Large Igneous Province)"} · `
+        + `${fmtMa(e.ma)} Ma · ${fmtLatLng(e.lat, e.lng)}`
+        + (e.type === "impact" ? ` · ${e.d} km diameter` : (e.ev ? ` · linked to the ${esc(e.ev)}` : ""));
+      return `
+      <div class="wt-event" title="${detail.replace(/"/g, "&quot;")}">
         <span class="wt-ev-ic">${e.type === "impact" ? "☄️" : "🌋"}</span>
         <span class="wt-ev-nm">${esc(e.name)}${e.type === "impact" ? " crater" : " (LIP)"}</span>
         <span class="wt-ev-meta">${fmtMa(e.ma)} Ma${e.type === "impact" ? ` · ${e.d} km` : (e.ev ? ` · ${esc(e.ev)}` : "")}</span>
-      </div>`).join("")}</div>`;
+        <button type="button" class="wt-ev-fly" data-lat="${e.lat}" data-lng="${e.lng}"
+          data-name="${esc(e.name)}" title="Fly to ${esc(e.name)}" aria-label="Fly to ${esc(e.name)}">🌍</button>
+      </div>`;
+    }).join("")}</div>`;
+}
+
+/* Signed decimal degrees → a compact N/S/E/W string, e.g. "21.4°N, 89.5°W". */
+function fmtLatLng(lat, lng) {
+  return `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? "N" : "S"}, ${Math.abs(lng).toFixed(1)}°${lng >= 0 ? "E" : "W"}`;
 }
 
 let topScaleWired = false;
@@ -2640,6 +2652,16 @@ async function flyToPlace() {
 // Enter (desktop), the mobile keyboard's "go/search" key, and a tap-able button —
 // phones don't reliably send Enter, so the button is the dependable trigger.
 $("f-place").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); flyToPlace(); } });
+
+// The 🌍 button on each "events around this time" row flies the globe there;
+// the row's title attribute carries the full detail (type, age, coordinates).
+$("paleoclimate").addEventListener("click", (e) => {
+  const btn = e.target.closest(".wt-ev-fly");
+  if (!btn) return;
+  globe.controls().autoRotate = false;
+  globe.pointOfView({ lat: +btn.dataset.lat, lng: +btn.dataset.lng, altitude: 1.1 }, 1200);
+  flash(`🌍 ${btn.dataset.name}`);
+});
 $("f-place").addEventListener("search", flyToPlace);
 $("btn-place").addEventListener("click", flyToPlace);
 
