@@ -2231,9 +2231,15 @@ $("detail-close").addEventListener("click", () => {
 // Switch the detail view to another collection at the same site (inline browse).
 $("detail").addEventListener("click", (e) => {
   const row = e.target.closest(".coll-row[data-oid]");
-  if (!row || row.classList.contains("on")) return;
-  const rec = currentRecs.find((r) => String(r.oid) === row.dataset.oid);
-  if (rec) openLocality(rec);
+  if (row) {
+    if (row.classList.contains("on")) return;
+    const rec = currentRecs.find((r) => String(r.oid) === row.dataset.oid);
+    if (rec) openLocality(rec);
+    return;
+  }
+  // Tapping a taxon card's blurb expands it to the full Wikipedia extract.
+  const desc = e.target.closest(".tx-desc");
+  if (desc) desc.classList.toggle("expanded");
 });
 $("panel-toggle").addEventListener("click", () => $("panel").classList.remove("collapsed"));
 $("panel-close").addEventListener("click", () => $("panel").classList.add("collapsed"));
