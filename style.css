@@ -366,6 +366,8 @@ button:hover { filter: brightness(1.08); }
 }
 #layers-btn:hover { border-color: var(--accent); color: var(--accent); }
 #layers-btn.on { border-color: var(--accent); color: var(--accent); }
+/* Slide clear of the detail panel on desktop so the button stays reachable. */
+#layers-btn.detail-open, .layers-pop.detail-open { right: 396px; }
 .layers-pop {
   position: fixed; bottom: 70px; right: 16px; z-index: 18;
   width: 268px; max-width: calc(100vw - 32px); max-height: 72vh; overflow-y: auto;
@@ -608,6 +610,8 @@ button:hover { filter: brightness(1.08); }
      the top is free). Tap the summary to open the drill-down (no hover). */
   .tscale { left: 8px; right: 8px; top: 8px; }
   .tscale.detail-open { right: 8px; }
+  /* Full-screen detail panel already covers the button on phones. */
+  #layers-btn.detail-open, .layers-pop.detail-open { right: 16px; }
   .ts-cap { flex-basis: 84px; }
 
   /* Bigger touch targets */

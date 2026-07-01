@@ -1371,6 +1371,8 @@ async function openLocality(d) {
   const body = $("detail-body");
   panel.classList.remove("hidden");
   $("timescale").classList.add("detail-open"); // make room so the panel doesn't cover the strip
+  $("layers-btn").classList.add("detail-open"); // ...and so the layers button stays reachable
+  $("layers-pop").classList.add("detail-open");
   const myToken = ++openToken;
 
   const collNo = String(d.oid || "").replace(/\D/g, "");
@@ -1446,6 +1448,8 @@ function openNeotomaSite(d) {
   const panel = $("detail"), body = $("detail-body");
   panel.classList.remove("hidden");
   $("timescale").classList.add("detail-open");
+  $("layers-btn").classList.add("detail-open");
+  $("layers-pop").classList.add("detail-open");
   ++openToken;
   const taxa = [...(d._ntaxa || [])].sort((a, b) => a.localeCompare(b));
   const types = [...(d._ntypes || [])];
@@ -2227,6 +2231,8 @@ $("btn-download").addEventListener("click", exportResults);
 $("detail-close").addEventListener("click", () => {
   $("detail").classList.add("hidden");
   $("timescale").classList.remove("detail-open");
+  $("layers-btn").classList.remove("detail-open");
+  $("layers-pop").classList.remove("detail-open");
 });
 // Switch the detail view to another collection at the same site (inline browse).
 $("detail").addEventListener("click", (e) => {
