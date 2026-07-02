@@ -421,6 +421,19 @@ const LIPS = [
   ["Columbia River", 16, 46, -118, "", "Columbia River Basalt Group"],
 ];
 
+// Named global episodes (hyperthermals, anoxic/extinction events, biotic
+// turnovers) — unlike impacts/LIPs these have no single point on the map, so
+// they carry a start–end age range instead of lat/lng and skip the fly button.
+// [name, start Ma, end Ma, icon, linked event keys, Wikipedia title, note].
+const EPOCH_EVENTS = [
+  ["PETM", 56, 55.8, "🌡️", [], "Paleocene–Eocene Thermal Maximum", ""],
+  ["OAE2", 94.4, 93.5, "☠️", ["KTM"], "Cenomanian-Turonian boundary event",
+    "Bonarelli Event — ocean anoxia as the planet overheated killed off ~27% of marine invertebrate species, most ichthyosaurs and pliosaurs"],
+  ["KTM", 94, 85, "🌡️", ["OAE2"], "Cretaceous Thermal Maximum", "Peak heat ~90 Ma, driven by the same volcanism/CO₂ pulse as OAE2"],
+  ["ATR/KTR", 125, 50, "🌸", ["OAE2", "KTM"], "Cretaceous Terrestrial Revolution",
+    "Angiosperm/Cretaceous Terrestrial Revolution — flowering-plant radiation and pollinator co-evolution; KTR ~125–80 Ma, ATR (extends into the Paleogene) ~100–50 Ma, definitions vary"],
+];
+
 /* Linear interpolation over an anchor table keyed by Ma in column 0. */
 function interpRows(rows, ma, cols) {
   if (ma == null) return null;
@@ -459,7 +472,9 @@ function currentSpanMa() {
   return [0, 0];
 }
 
-/* Impacts + LIPs whose age falls within (or just outside) the selected span. */
+/* Impacts + LIPs + named episodes whose age falls within (or overlaps) the
+ * selected span. Point events (impacts/LIPs) match if their age is in range;
+ * episodes (a start–end range) match if the two ranges overlap at all. */
 function eventsInSpan([min, max]) {
   const pad = Math.max(2, (max - min) * 0.04);
   const lo = min - pad, hi = max + pad;
@@ -467,7 +482,10 @@ function eventsInSpan([min, max]) {
     .map(([name, ma, lat, lng, d]) => ({ type: "impact", name, ma, lat, lng, d }));
   const li = LIPS.filter(([, ma]) => ma >= lo && ma <= hi)
     .map(([name, ma, lat, lng, ev, wiki]) => ({ type: "lip", name, ma, lat, lng, ev, wiki }));
-  return [...im, ...li].sort((a, b) => a.ma - b.ma);
+  const ep = EPOCH_EVENTS.filter(([, start, end]) => lo <= start && end <= hi)
+    .map(([name, start, end, icon, linked, wiki, note]) =>
+      ({ type: "epoch", name, ma: (start + end) / 2, start, end, icon, linked, wiki, note }));
+  return [...im, ...li, ...ep].sort((a, b) => a.ma - b.ma);
 }
 
 /* Paint the "world at this time" card for an age (defaults to the current time
@@ -514,21 +532,33 @@ function renderPaleoclimate(ma) {
   if (events.length) enrichEvents();
 }
 
+/* Per-type icon, display name suffix, and the "· extra bit" appended after
+ * the age in both the compact meta line and the full hover tooltip. */
+function eventBits(e) {
+  if (e.type === "impact") return { icon: "☄️", nm: e.name + " crater", extra: `${e.d} km` };
+  if (e.type === "lip") return { icon: "🌋", nm: e.name + " (LIP)", extra: e.ev ? esc(e.ev) : "" };
+  return { icon: e.icon, nm: e.name, extra: e.linked.length ? `linked to ${e.linked.join(", ")}` : "" };
+}
 function eventsHtml(events) {
   if (!events.length) return "";
   return `<div class="wt-grp">Events around this time</div>
     <div class="wt-events">${events.map((e) => {
-      const detail = `${esc(e.name)}${e.type === "impact" ? " impact crater" : " (Large Igneous Province)"} · `
-        + `${fmtMa(e.ma)} Ma · ${fmtLatLng(e.lat, e.lng)}`
-        + (e.type === "impact" ? ` · ${e.d} km diameter` : (e.ev ? ` · linked to the ${esc(e.ev)}` : ""));
+      const { icon, nm, extra } = eventBits(e);
+      // Episodes need finer precision than fmtMa's whole-number rounding above 10 Ma
+      // (else a narrow range like PETM's 56–55.8 collapses to "56–56 Ma").
+      const fmtBound = (v) => Number.isInteger(v) ? String(v) : (+v).toFixed(1);
+      const ageStr = e.type === "epoch" ? `${fmtBound(e.start)}–${fmtBound(e.end)} Ma` : `${fmtMa(e.ma)} Ma`;
+      const meta = ageStr + (extra ? ` · ${extra}` : "");
+      const detail = `${esc(nm)} · ${meta}` + (e.lat != null ? ` · ${fmtLatLng(e.lat, e.lng)}` : "")
+        + (e.note ? ` — ${esc(e.note)}` : "");
       return `
       <div class="wt-event" data-wiki-name="${esc(e.name)}" data-wiki-type="${e.type}" data-wiki-title="${esc(e.wiki || "")}">
         <div class="wt-ev-row" title="${detail.replace(/"/g, "&quot;")}">
-          <span class="wt-ev-ic">${e.type === "impact" ? "☄️" : "🌋"}</span>
-          <span class="wt-ev-nm">${esc(e.name)}${e.type === "impact" ? " crater" : " (LIP)"}</span>
-          <span class="wt-ev-meta">${fmtMa(e.ma)} Ma${e.type === "impact" ? ` · ${e.d} km` : (e.ev ? ` · ${esc(e.ev)}` : "")}</span>
-          <button type="button" class="wt-ev-fly" data-lat="${e.lat}" data-lng="${e.lng}"
-            data-name="${esc(e.name)}" title="Fly to ${esc(e.name)}" aria-label="Fly to ${esc(e.name)}">🌍</button>
+          <span class="wt-ev-ic">${icon}</span>
+          <span class="wt-ev-nm">${esc(nm)}</span>
+          <span class="wt-ev-meta">${meta}</span>
+          ${e.lat != null ? `<button type="button" class="wt-ev-fly" data-lat="${e.lat}" data-lng="${e.lng}"
+            data-name="${esc(e.name)}" title="Fly to ${esc(e.name)}" aria-label="Fly to ${esc(e.name)}">🌍</button>` : ""}
         </div>
         <div class="wt-ev-desc"></div>
       </div>`;
@@ -1214,7 +1244,7 @@ globe.ringColor((d) => (t) => d._type === "impact"
   .ringPropagationSpeed(1.4).ringRepeatPeriod(1500).ringAltitude(0.012);
 function updateEventRings() {
   if (usePaleo) { globe.ringsData([]); return; }
-  const evs = eventsInSpan(currentSpanMa()).filter((e) => e.ma <= 545);
+  const evs = eventsInSpan(currentSpanMa()).filter((e) => e.ma <= 545 && e.lat != null);
   globe.ringsData(evs.map((e) => ({ lat: e.lat, lng: e.lng, _type: e.type, name: e.name })));
 }
 
