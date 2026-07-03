@@ -395,43 +395,61 @@ const ALMANAC = [
   [444, 21.5, 200, 0.7079], [485, 21.3, 120, 0.7088], [541, 21.1, 30, 0.7085],
 ];
 
-// Major confirmed impacts. [name, Ma, lat, lng, crater diameter km] (Earth Impact DB).
+// An event's tags decide both its filter category (see EVENT_CATEGORIES) and
+// which icon(s) it draws — an event with several tags shows several icons.
+const EVENT_ICONS = { impact: "☄️", volcano: "🌋", extinction: "☠️", thermal: "🌡️", turnover: "🌸" };
+const EVENT_CATEGORIES = [
+  { tag: "impact", label: "Impacts" }, { tag: "volcano", label: "Volcanism" },
+  { tag: "extinction", label: "Extinctions" }, { tag: "thermal", label: "Hyperthermals" },
+  { tag: "turnover", label: "Turnovers" },
+];
+
+// Major confirmed impacts. [name, Ma, lat, lng, crater diameter km, tags].
+// Only Chicxulub is tagged extinction — the rest are locally significant but
+// lack a well-established global extinction signal.
 const IMPACTS = [
-  ["Chicxulub", 66, 21.4, -89.5, 180], ["Popigai", 35.7, 71.6, 111.2, 90],
-  ["Chesapeake Bay", 35.5, 37.3, -76.0, 40], ["Manicouagan", 215, 51.4, -68.7, 100],
-  ["Morokweng", 145, -23.5, 23.5, 70], ["Acraman", 580, -32.0, 135.5, 90],
-  ["Woodleigh", 364, -26.1, 114.7, 60], ["Siljan", 377, 61.0, 14.9, 52],
-  ["Charlevoix", 342, 47.5, -70.3, 54], ["Rochechouart", 207, 45.8, 0.9, 23],
-  ["Kara", 70, 69.1, 64.2, 65], ["Tookoonooka", 128, -27.0, 143.0, 55],
-  ["Mistastin", 36, 55.9, -63.3, 28], ["Boltysh", 65.4, 48.8, 32.2, 24],
+  ["Chicxulub", 66, 21.4, -89.5, 180, ["impact", "extinction"]], ["Popigai", 35.7, 71.6, 111.2, 90, ["impact"]],
+  ["Chesapeake Bay", 35.5, 37.3, -76.0, 40, ["impact"]], ["Manicouagan", 215, 51.4, -68.7, 100, ["impact"]],
+  ["Morokweng", 145, -23.5, 23.5, 70, ["impact"]], ["Acraman", 580, -32.0, 135.5, 90, ["impact"]],
+  ["Woodleigh", 364, -26.1, 114.7, 60, ["impact"]], ["Siljan", 377, 61.0, 14.9, 52, ["impact"]],
+  ["Charlevoix", 342, 47.5, -70.3, 54, ["impact"]], ["Rochechouart", 207, 45.8, 0.9, 23, ["impact"]],
+  ["Kara", 70, 69.1, 64.2, 65, ["impact"]], ["Tookoonooka", 128, -27.0, 143.0, 55, ["impact"]],
+  ["Mistastin", 36, 55.9, -63.3, 28, ["impact"]], ["Boltysh", 65.4, 48.8, 32.2, 24, ["impact"]],
 ];
 // Major Large Igneous Provinces. [name, Ma, lat, lng, linked event, Wikipedia
 // title — the short display names above rarely match a Wikipedia title (or,
-// worse, match a *different* generic/disambiguation page), so each is pinned.
+// worse, match a *different* generic/disambiguation page), so each is pinned —
+// tags]. Extinction-linked LIPs per the "big five" + Deccan/K-Pg literature.
 const LIPS = [
-  ["Deccan Traps", 66, 19, 74, "end-Cretaceous", "Deccan Traps"],
-  ["Siberian Traps", 252, 67, 90, "end-Permian", "Siberian Traps"],
-  ["CAMP", 201, 20, -40, "end-Triassic", "Central Atlantic magmatic province"],
-  ["Karoo–Ferrar", 183, -30, 25, "Toarcian event", "Karoo-Ferrar"],
-  ["Emeishan Traps", 259, 26, 103, "Capitanian event", "Emeishan Traps"],
-  ["Ontong Java", 121, 0, 160, "Aptian anoxia", "Ontong Java Plateau"],
-  ["Paraná–Etendeka", 134, -25, -50, "", "Paraná and Etendeka traps"],
-  ["N. Atlantic IP", 56, 65, -10, "PETM", "North Atlantic Igneous Province"],
-  ["Viluy Traps", 373, 65, 120, "Late Devonian", "Viluy traps"],
-  ["Columbia River", 16, 46, -118, "", "Columbia River Basalt Group"],
+  ["Deccan Traps", 66, 19, 74, "end-Cretaceous", "Deccan Traps", ["volcano", "extinction"]],
+  ["Siberian Traps", 252, 67, 90, "end-Permian", "Siberian Traps", ["volcano", "extinction"]],
+  ["CAMP", 201, 20, -40, "end-Triassic", "Central Atlantic magmatic province", ["volcano", "extinction"]],
+  ["Karoo–Ferrar", 183, -30, 25, "Toarcian event", "Karoo-Ferrar", ["volcano", "extinction"]],
+  ["Emeishan Traps", 259, 26, 103, "Capitanian event", "Emeishan Traps", ["volcano", "extinction"]],
+  ["Ontong Java", 121, 0, 160, "Aptian anoxia", "Ontong Java Plateau", ["volcano"]],
+  ["Paraná–Etendeka", 134, -25, -50, "", "Paraná and Etendeka traps", ["volcano", "extinction"]],
+  ["N. Atlantic IP", 56, 65, -10, "PETM", "North Atlantic Igneous Province", ["volcano"]],
+  ["Viluy Traps", 373, 65, 120, "Late Devonian", "Viluy traps", ["volcano"]],
+  ["Columbia River", 16, 46, -118, "", "Columbia River Basalt Group", ["volcano"]],
 ];
 
-// Named global episodes (hyperthermals, anoxic/extinction events, biotic
-// turnovers) — unlike impacts/LIPs these have no single point on the map, so
+// Named global episodes (hyperthermals, an anoxic extinction event, a biotic
+// turnover) — unlike impacts/LIPs these have no single point on the map, so
 // they carry a start–end age range instead of lat/lng and skip the fly button.
-// [name, start Ma, end Ma, icon, linked event keys, Wikipedia title, note].
+// ATR/KTR is two overlapping definitions of the same turnover under different
+// names (`ranges` displays both; `start`/`end` is their union, used only to
+// decide whether the episode overlaps the selected time span).
 const EPOCH_EVENTS = [
-  ["PETM", 56, 55.8, "🌡️", [], "Paleocene–Eocene Thermal Maximum", ""],
-  ["OAE2", 94.4, 93.5, "☠️", ["KTM"], "Cenomanian-Turonian boundary event",
-    "Bonarelli Event — ocean anoxia as the planet overheated killed off ~27% of marine invertebrate species, most ichthyosaurs and pliosaurs"],
-  ["KTM", 94, 85, "🌡️", ["OAE2"], "Cretaceous Thermal Maximum", "Peak heat ~90 Ma, driven by the same volcanism/CO₂ pulse as OAE2"],
-  ["ATR/KTR", 125, 50, "🌸", ["OAE2", "KTM"], "Cretaceous Terrestrial Revolution",
-    "Angiosperm/Cretaceous Terrestrial Revolution — flowering-plant radiation and pollinator co-evolution; KTR ~125–80 Ma, ATR (extends into the Paleogene) ~100–50 Ma, definitions vary"],
+  { name: "PETM", start: 56, end: 55.8, tags: ["thermal"], linked: [],
+    wiki: "Paleocene–Eocene Thermal Maximum", note: "" },
+  { name: "OAE2", start: 94.4, end: 93.5, tags: ["extinction"], linked: ["KTM", "ATR/KTR"],
+    wiki: "Cenomanian-Turonian boundary event",
+    note: "Bonarelli Event — ocean anoxia as the planet overheated killed off ~27% of marine invertebrate species, most ichthyosaurs and pliosaurs" },
+  { name: "KTM", start: 94, end: 85, tags: ["thermal"], linked: ["OAE2", "ATR/KTR"],
+    wiki: "Cretaceous Thermal Maximum", note: "Peak heat ~90 Ma, driven by the same volcanism/CO₂ pulse as OAE2" },
+  { name: "ATR/KTR", start: 125, end: 50, tags: ["turnover"], linked: ["OAE2", "KTM"],
+    ranges: [["KTR", 125, 80], ["ATR", 100, 50]], wiki: "Cretaceous Terrestrial Revolution",
+    note: "Flowering-plant radiation and pollinator co-evolution — KTR and ATR are two proposed timeframes for the same broad turnover, definitions vary" },
 ];
 
 /* Linear interpolation over an anchor table keyed by Ma in column 0. */
@@ -474,17 +492,18 @@ function currentSpanMa() {
 
 /* Impacts + LIPs + named episodes whose age falls within (or overlaps) the
  * selected span. Point events (impacts/LIPs) match if their age is in range;
- * episodes (a start–end range) match if the two ranges overlap at all. */
+ * episodes (a start–end range) match if the two ranges overlap at all. The pad
+ * is capped so a huge span (e.g. the whole Mesozoic) doesn't pull in events
+ * many millions of years outside it — only a fixed-size boundary fuzz. */
 function eventsInSpan([min, max]) {
-  const pad = Math.max(2, (max - min) * 0.04);
+  const pad = Math.min(5, Math.max(2, (max - min) * 0.04));
   const lo = min - pad, hi = max + pad;
   const im = IMPACTS.filter(([, ma]) => ma >= lo && ma <= hi)
-    .map(([name, ma, lat, lng, d]) => ({ type: "impact", name, ma, lat, lng, d }));
+    .map(([name, ma, lat, lng, d, tags]) => ({ type: "impact", name, ma, lat, lng, d, tags }));
   const li = LIPS.filter(([, ma]) => ma >= lo && ma <= hi)
-    .map(([name, ma, lat, lng, ev, wiki]) => ({ type: "lip", name, ma, lat, lng, ev, wiki }));
-  const ep = EPOCH_EVENTS.filter(([, start, end]) => lo <= start && end <= hi)
-    .map(([name, start, end, icon, linked, wiki, note]) =>
-      ({ type: "epoch", name, ma: (start + end) / 2, start, end, icon, linked, wiki, note }));
+    .map(([name, ma, lat, lng, ev, wiki, tags]) => ({ type: "lip", name, ma, lat, lng, ev, wiki, tags }));
+  const ep = EPOCH_EVENTS.filter((ev) => lo <= ev.start && ev.end <= hi)
+    .map((ev) => ({ type: "epoch", ma: (ev.start + ev.end) / 2, ...ev }));
   return [...im, ...li, ...ep].sort((a, b) => a.ma - b.ma);
 }
 
@@ -532,23 +551,41 @@ function renderPaleoclimate(ma) {
   if (events.length) enrichEvents();
 }
 
-/* Per-type icon, display name suffix, and the "· extra bit" appended after
- * the age in both the compact meta line and the full hover tooltip. */
+// Which event categories are hidden, persisted like the tree-view expansion
+// state elsewhere in the app. Empty by default (everything shown).
+const EVENT_FILTER_STORE = "pdmap.eventFiltersOff";
+let eventFiltersOff = loadSet(EVENT_FILTER_STORE);
+const eventVisible = (e) => e.tags.some((t) => !eventFiltersOff.has(t));
+
+// Episodes need finer precision than fmtMa's whole-number rounding above 10 Ma
+// (else a narrow range like PETM's 56–55.8 collapses to "56–56 Ma").
+const fmtEvBound = (v) => Number.isInteger(v) ? String(v) : (+v).toFixed(1);
+
+/* Display name suffix, age string, and the "· extra bit" appended after the
+ * age — used for both the compact meta line and the full hover tooltip. */
 function eventBits(e) {
-  if (e.type === "impact") return { icon: "☄️", nm: e.name + " crater", extra: `${e.d} km` };
-  if (e.type === "lip") return { icon: "🌋", nm: e.name + " (LIP)", extra: e.ev ? esc(e.ev) : "" };
-  return { icon: e.icon, nm: e.name, extra: e.linked.length ? `linked to ${e.linked.join(", ")}` : "" };
+  const icon = e.tags.map((t) => EVENT_ICONS[t]).join("");
+  if (e.type === "impact") return { icon, nm: e.name + " crater", age: `${fmtMa(e.ma)} Ma`, extra: `${e.d} km` };
+  if (e.type === "lip") return { icon, nm: e.name + " (LIP)", age: `${fmtMa(e.ma)} Ma`, extra: e.ev ? esc(e.ev) : "" };
+  const age = e.ranges ? e.ranges.map(([label, s, en]) => `${label} ${fmtEvBound(s)}–${fmtEvBound(en)}`).join(" · ") + " Ma"
+    : `${fmtEvBound(e.start)}–${fmtEvBound(e.end)} Ma`;
+  return { icon, nm: e.name, age, extra: e.linked.length ? `linked to ${e.linked.join(", ")}` : "" };
 }
-function eventsHtml(events) {
-  if (!events.length) return "";
+
+function eventFilterHtml() {
+  return `<div class="wt-ev-filters">${EVENT_CATEGORIES.map((c) =>
+    `<button type="button" class="wt-ev-filter${eventFiltersOff.has(c.tag) ? "" : " on"}" data-tag="${c.tag}">
+      ${EVENT_ICONS[c.tag]} ${esc(c.label)}</button>`).join("")}</div>`;
+}
+
+function eventsHtml(allEvents) {
+  if (!allEvents.length) return "";
+  const events = allEvents.filter(eventVisible);
   return `<div class="wt-grp">Events around this time</div>
-    <div class="wt-events">${events.map((e) => {
-      const { icon, nm, extra } = eventBits(e);
-      // Episodes need finer precision than fmtMa's whole-number rounding above 10 Ma
-      // (else a narrow range like PETM's 56–55.8 collapses to "56–56 Ma").
-      const fmtBound = (v) => Number.isInteger(v) ? String(v) : (+v).toFixed(1);
-      const ageStr = e.type === "epoch" ? `${fmtBound(e.start)}–${fmtBound(e.end)} Ma` : `${fmtMa(e.ma)} Ma`;
-      const meta = ageStr + (extra ? ` · ${extra}` : "");
+    ${eventFilterHtml()}
+    ${events.length ? `<div class="wt-events">${events.map((e) => {
+      const { icon, nm, age, extra } = eventBits(e);
+      const meta = age + (extra ? ` · ${extra}` : "");
       const detail = `${esc(nm)} · ${meta}` + (e.lat != null ? ` · ${fmtLatLng(e.lat, e.lng)}` : "")
         + (e.note ? ` — ${esc(e.note)}` : "");
       return `
@@ -562,7 +599,7 @@ function eventsHtml(events) {
         </div>
         <div class="wt-ev-desc"></div>
       </div>`;
-    }).join("")}</div>`;
+    }).join("")}</div>` : `<p class="muted-note">All matching events are hidden by the filters above.</p>`}`;
 }
 
 /* Signed decimal degrees → a compact N/S/E/W string, e.g. "21.4°N, 89.5°W". */
@@ -1244,7 +1281,7 @@ globe.ringColor((d) => (t) => d._type === "impact"
   .ringPropagationSpeed(1.4).ringRepeatPeriod(1500).ringAltitude(0.012);
 function updateEventRings() {
   if (usePaleo) { globe.ringsData([]); return; }
-  const evs = eventsInSpan(currentSpanMa()).filter((e) => e.ma <= 545 && e.lat != null);
+  const evs = eventsInSpan(currentSpanMa()).filter((e) => e.ma <= 545 && e.lat != null && eventVisible(e));
   globe.ringsData(evs.map((e) => ({ lat: e.lat, lng: e.lng, _type: e.type, name: e.name })));
 }
 
@@ -2751,7 +2788,15 @@ $("paleoclimate").addEventListener("click", (e) => {
     return;
   }
   const desc = e.target.closest(".wt-ev-desc");
-  if (desc) desc.classList.toggle("expanded");
+  if (desc) { desc.classList.toggle("expanded"); return; }
+  const filterBtn = e.target.closest(".wt-ev-filter");
+  if (filterBtn) {
+    const tag = filterBtn.dataset.tag;
+    eventFiltersOff.has(tag) ? eventFiltersOff.delete(tag) : eventFiltersOff.add(tag);
+    saveSet(EVENT_FILTER_STORE, eventFiltersOff);
+    renderPaleoclimate();
+    updateEventRings();
+  }
 });
 $("f-place").addEventListener("search", flyToPlace);
 $("btn-place").addEventListener("click", flyToPlace);
