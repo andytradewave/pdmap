@@ -594,6 +594,7 @@ function eventsHtml(allEvents) {
           <span class="wt-ev-ic">${icon}</span>
           <span class="wt-ev-nm">${esc(nm)}</span>
           <span class="wt-ev-meta">${meta}</span>
+          <a class="wt-ev-wiki hidden" target="_blank" rel="noopener" title="Open on Wikipedia" aria-label="Open on Wikipedia">📖</a>
           ${e.lat != null ? `<button type="button" class="wt-ev-fly" data-lat="${e.lat}" data-lng="${e.lng}"
             data-name="${esc(e.name)}" title="Fly to ${esc(e.name)}" aria-label="Fly to ${esc(e.name)}">🌍</button>` : ""}
         </div>
@@ -646,6 +647,8 @@ async function enrichEvents() {
       if (myToken !== eventEnrichToken) return;
       const d = card.querySelector(".wt-ev-desc");
       if (d && info && info.extract) d.textContent = info.extract;
+      const wikiLink = card.querySelector(".wt-ev-wiki");
+      if (wikiLink && info && info.url) { wikiLink.href = info.url; wikiLink.classList.remove("hidden"); }
     }
   };
   await Promise.all(Array.from({ length: 4 }, worker));
@@ -907,6 +910,9 @@ async function search() {
   // base_name carries both the included taxon and any excluded sub-groups, using
   // PBDB's "^" exclusion syntax (e.g. Dinosauria^Aves = dinosaurs sans birds);
   // the custom range / interval and viewport are also folded in by buildFilterParams.
+  // With every filter cleared, PBDB rejects the request unless told explicitly
+  // that browsing everything is intentional — otherwise treat it as "show all".
+  if (![...params.keys()].length) params.set("all_records", "1");
   lastFilterParams = params.toString(); // filter-only snapshot for occurrence export
   lastLimit = limit;
   params.set("show", "loc,time,paleoloc");
@@ -1274,15 +1280,36 @@ async function updatePlateBoundaries() {
 
 /* Event rings — impacts (☄) and large igneous provinces (🌋) within the selected
  * span, pulsed at their *modern* coordinates (so only shown on the modern globe,
- * not the paleo reconstruction where positions would be wrong). */
+ * not the paleo reconstruction where positions would be wrong). A clickable
+ * label sits at the same spot (rings alone aren't interactive in globe.gl) and
+ * jumps to that event's row in the Results panel, mirroring how a locality dot
+ * opens its detail panel. */
 globe.ringColor((d) => (t) => d._type === "impact"
   ? `rgba(255,80,60,${(1 - t) * 0.9})` : `rgba(255,160,40,${(1 - t) * 0.9})`)
   .ringMaxRadius((d) => d._type === "impact" ? 2.4 : 3.2)
-  .ringPropagationSpeed(1.4).ringRepeatPeriod(1500).ringAltitude(0.012);
+  .ringPropagationSpeed(1.4).ringRepeatPeriod(1500).ringAltitude(0.012)
+  .labelText("icon").labelSize(1.35).labelColor("#fff").labelIncludeDot(false)
+  .labelAltitude(0.012).labelResolution(3).labelLabel((d) => `<div>${esc(d.name)} — click for details</div>`)
+  .onLabelClick((d) => focusEventInList(d.name))
+  .onLabelHover((d) => { document.body.style.cursor = d ? "pointer" : ""; });
 function updateEventRings() {
-  if (usePaleo) { globe.ringsData([]); return; }
+  if (usePaleo) { globe.ringsData([]); globe.labelsData([]); return; }
   const evs = eventsInSpan(currentSpanMa()).filter((e) => e.ma <= 545 && e.lat != null && eventVisible(e));
-  globe.ringsData(evs.map((e) => ({ lat: e.lat, lng: e.lng, _type: e.type, name: e.name })));
+  const marked = evs.map((e) => ({ lat: e.lat, lng: e.lng, _type: e.type, name: e.name,
+    icon: e.tags.map((t) => EVENT_ICONS[t]).join("") }));
+  globe.ringsData(marked);
+  globe.labelsData(marked);
+}
+/* Scroll to (and briefly highlight) an event's row in the Results panel,
+ * opening the panel and switching tabs first if needed. */
+function focusEventInList(name) {
+  $("panel").classList.remove("collapsed");
+  showTab("results");
+  const row = document.querySelector(`.wt-event[data-wiki-name="${CSS.escape(name)}"]`);
+  if (!row) { flash(`${name} isn't in the current time range — widen it to see this event.`); return; }
+  row.scrollIntoView({ behavior: "smooth", block: "center" });
+  row.classList.add("flash-hi");
+  setTimeout(() => row.classList.remove("flash-hi"), 1600);
 }
 
 /* Density layer — aggregates localities into a lat/lng grid and draws each cell
