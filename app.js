@@ -404,17 +404,28 @@ const EVENT_CATEGORIES = [
   { tag: "turnover", label: "Turnovers" },
 ];
 
-// Major confirmed impacts. [name, Ma, lat, lng, crater diameter km, tags].
-// Only Chicxulub is tagged extinction — the rest are locally significant but
-// lack a well-established global extinction signal.
+// Major confirmed impacts. [name, Ma, lat, lng, crater diameter km, tags,
+// Wikipedia title]. Only Chicxulub is tagged extinction — the rest are
+// locally significant but lack a well-established global extinction signal.
+// Titles are pinned rather than found by live search: several of these
+// craters are titled "X impact structure" rather than "X crater" on
+// Wikipedia, and a live search for the wrong one can rank a generic "list
+// of impact structures" page above the real article.
 const IMPACTS = [
-  ["Chicxulub", 66, 21.4, -89.5, 180, ["impact", "extinction"]], ["Popigai", 35.7, 71.6, 111.2, 90, ["impact"]],
-  ["Chesapeake Bay", 35.5, 37.3, -76.0, 40, ["impact"]], ["Manicouagan", 215, 51.4, -68.7, 100, ["impact"]],
-  ["Morokweng", 145, -23.5, 23.5, 70, ["impact"]], ["Acraman", 580, -32.0, 135.5, 90, ["impact"]],
-  ["Woodleigh", 364, -26.1, 114.7, 60, ["impact"]], ["Siljan", 377, 61.0, 14.9, 52, ["impact"]],
-  ["Charlevoix", 342, 47.5, -70.3, 54, ["impact"]], ["Rochechouart", 207, 45.8, 0.9, 23, ["impact"]],
-  ["Kara", 70, 69.1, 64.2, 65, ["impact"]], ["Tookoonooka", 128, -27.0, 143.0, 55, ["impact"]],
-  ["Mistastin", 36, 55.9, -63.3, 28, ["impact"]], ["Boltysh", 65.4, 48.8, 32.2, 24, ["impact"]],
+  ["Chicxulub", 66, 21.4, -89.5, 180, ["impact", "extinction"], "Chicxulub crater"],
+  ["Popigai", 35.7, 71.6, 111.2, 90, ["impact"], "Popigai impact structure"],
+  ["Chesapeake Bay", 35.5, 37.3, -76.0, 40, ["impact"], "Chesapeake Bay impact crater"],
+  ["Manicouagan", 215, 51.4, -68.7, 100, ["impact"], "Manicouagan Reservoir"],
+  ["Morokweng", 145, -23.5, 23.5, 70, ["impact"], "Morokweng impact structure"],
+  ["Acraman", 580, -32.0, 135.5, 90, ["impact"], "Acraman impact structure"],
+  ["Woodleigh", 364, -26.1, 114.7, 60, ["impact"], "Woodleigh impact structure"],
+  ["Siljan", 377, 61.0, 14.9, 52, ["impact"], "Siljan Ring"],
+  ["Charlevoix", 342, 47.5, -70.3, 54, ["impact"], "Charlevoix impact structure"],
+  ["Rochechouart", 207, 45.8, 0.9, 23, ["impact"], "Rochechouart impact structure"],
+  ["Kara", 70, 69.1, 64.2, 65, ["impact"], "Kara crater"],
+  ["Tookoonooka", 128, -27.0, 143.0, 55, ["impact"], "Tookoonooka impact structure"],
+  ["Mistastin", 36, 55.9, -63.3, 28, ["impact"], "Mistastin crater"],
+  ["Boltysh", 65.4, 48.8, 32.2, 24, ["impact"], "Boltysh crater"],
 ];
 // Major Large Igneous Provinces. [name, Ma, lat, lng, linked event, Wikipedia
 // title — the short display names above rarely match a Wikipedia title (or,
@@ -429,7 +440,7 @@ const LIPS = [
   ["Ontong Java", 121, 0, 160, "Aptian anoxia", "Ontong Java Plateau", ["volcano"]],
   ["Paraná–Etendeka", 134, -25, -50, "", "Paraná and Etendeka traps", ["volcano", "extinction"]],
   ["N. Atlantic IP", 56, 65, -10, "PETM", "North Atlantic Igneous Province", ["volcano"]],
-  ["Viluy Traps", 373, 65, 120, "Late Devonian", "Viluy traps", ["volcano"]],
+  ["Viluy Traps", 373, 65, 120, "Late Devonian", "Viluy traps", ["volcano", "extinction"]],
   ["Columbia River", 16, 46, -118, "", "Columbia River Basalt Group", ["volcano"]],
 ];
 
@@ -450,6 +461,12 @@ const EPOCH_EVENTS = [
   { name: "ATR/KTR", start: 125, end: 50, tags: ["turnover"], linked: ["OAE2", "KTM"],
     ranges: [["KTR", 125, 80], ["ATR", 100, 50]], wiki: "Cretaceous Terrestrial Revolution",
     note: "Flowering-plant radiation and pollinator co-evolution — KTR and ATR are two proposed timeframes for the same broad turnover, definitions vary" },
+  // The other four of the "big five" mass extinctions are already represented by their
+  // volcanic/impact cause above (Viluy Traps, Siberian Traps, CAMP, Deccan Traps/Chicxulub);
+  // the end-Ordovician has no comparable LIP and is tied to glaciation, not volcanism.
+  { name: "End-Ordovician", start: 445.2, end: 443.8, tags: ["extinction"], linked: [],
+    wiki: "Late Ordovician mass extinction",
+    note: "~85% of species lost in two pulses tied to rapid Hirnantian glaciation and sea-level fall, then a return to anoxic warmth" },
 ];
 
 /* Linear interpolation over an anchor table keyed by Ma in column 0. */
@@ -499,7 +516,7 @@ function eventsInSpan([min, max]) {
   const pad = Math.min(5, Math.max(2, (max - min) * 0.04));
   const lo = min - pad, hi = max + pad;
   const im = IMPACTS.filter(([, ma]) => ma >= lo && ma <= hi)
-    .map(([name, ma, lat, lng, d, tags]) => ({ type: "impact", name, ma, lat, lng, d, tags }));
+    .map(([name, ma, lat, lng, d, tags, wiki]) => ({ type: "impact", name, ma, lat, lng, d, tags, wiki }));
   const li = LIPS.filter(([, ma]) => ma >= lo && ma <= hi)
     .map(([name, ma, lat, lng, ev, wiki, tags]) => ({ type: "lip", name, ma, lat, lng, ev, wiki, tags }));
   const ep = EPOCH_EVENTS.filter((ev) => lo <= ev.start && ev.end <= hi)
