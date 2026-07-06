@@ -266,14 +266,15 @@ buildLegend(); // draw the offline fallback legend immediately
 
 /* -------------------------------------------------- Geologic timescale --- */
 /* A colourful, drill-down timescale pinned to the top of the page. The header
- * has an Eon row covering all of geological time — the three Precambrian eons
- * compressed to a fixed width (they're ~8× longer than the Phanerozoic and
- * would otherwise crush the scale) — and, below it, an Era row for the
- * Phanerozoic's own eras, zoomed to fill the width.
- * Selecting an eon/era opens its periods below it, a period opens its epochs, an
- * epoch its ages — each row zoomed to fill the width and showing only the
- * children of the chosen branch, so everything the tree exposes is reachable by
- * drilling in. The whole stack auto-collapses to a single line showing the
+ * is a single, fixed Eon row covering all of geological time — the three
+ * Precambrian eons and the Phanerozoic given equal width (their real durations
+ * are wildly lopsided, so proportional sizing would crush one side or the
+ * other). Picking an eon opens its eras below it (if it has any — the
+ * Phanerozoic's Paleozoic/Mesozoic/Cenozoic, or a Precambrian eon's own era
+ * subdivisions), an era opens its periods, a period its epochs, an epoch its
+ * ages — each row zoomed to fill the width and showing only the children of
+ * the chosen branch, so everything the tree exposes is reachable by drilling
+ * in. The whole stack auto-collapses to a single line showing the
  * current pick and re-opens on hover. Picks drive the same selectedInterval the
  * search uses. */
 const intByName = (name) => INTERVALS.find((x) => x.name === name);
@@ -290,12 +291,6 @@ function ancestorOfType(node, type) {
   return null;
 }
 
-/* Phanerozoic = younger than ~545 Ma. The live data also tags it via the
- * Phanerozoic eon, but the age cut-off works for the offline fallback too. */
-function scaleOfType(type) {
-  return INTERVALS.filter((it) => it.type === type && it.max <= 545 && it.max - it.min > 0)
-    .sort((a, b) => b.max - a.max); // oldest on the left
-}
 function eonsRow() {
   return INTERVALS.filter((it) => it.type === "eon" && it.max - it.min > 0)
     .sort((a, b) => b.max - a.max);
@@ -356,17 +351,16 @@ function tsSummaryHtml() {
 }
 
 /* The chain of nodes whose children we drill in beneath the header: from the
- * selection's eon/era (the level shown in the header) down to the selection
+ * selection's eon (the only level the header shows) down to the selection
  * itself. Each link adds one finer row showing only that branch's children, so
- * the periods row holds just the selected eon/era's periods, then its epochs,
- * then its ages. */
+ * picking an eon opens its eras (if it has any), an era opens its periods,
+ * then epochs, then ages. */
 function drillNodes(sel) {
-  const top = sel.max <= 545 ? "era" : "eon"; // the level the header already shows
   const list = [];
   let it = sel;
   while (it) {
     list.unshift(it);
-    if (DEPTH[it.type] <= DEPTH[top]) break;
+    if (it.type === "eon") break;
     it = it.parent != null ? intById.get(it.parent) : null;
   }
   return list;
@@ -787,17 +781,14 @@ function syncTopScale() {
   const dimRow = (nodes) => nodes.some((n) => active.has(n.name));
 
   const eons = eonsRow();
-  const eras = scaleOfType("era");
-  // Header: an Eon row, all four eons given equal width (their real durations
-  // are wildly lopsided — the Phanerozoic is ~8x shorter than the Precambrian
-  // eons — so proportional sizing would crush one side or the other), then an
-  // Era row for the Phanerozoic's own eras, zoomed to fill the width.
+  // Header: a fixed Eon row, all four eons given equal width (their real
+  // durations are wildly lopsided — the Phanerozoic is ~8x shorter than the
+  // Precambrian eons — so proportional sizing would crush one side or the other).
   const dur = (n) => n.max - n.min;
   let html = tsRowHtml("Eon", tsBar(eons, active, dimRow(eons), () => 1));
-  html += tsRowHtml("Era", tsBar(eras, active, dimRow(eras), dur));
 
-  // Drill rows: the selected eon/era's periods, then its epochs, then its ages —
-  // only the chosen branch, each row zoomed to fill the width.
+  // Drill rows: the selected eon's eras (if it has any), then periods, epochs,
+  // ages — only the chosen branch, each row zoomed to fill the width.
   if (sel) {
     for (const node of drillNodes(sel)) {
       if (node.children && node.children.length) {
