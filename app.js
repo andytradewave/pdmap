@@ -1653,6 +1653,13 @@ function collectionsAtSite(d) {
 
 let openToken = 0;
 async function openLocality(d) {
+  if (pickTarget) {
+    if (d._src === "neotoma") { flash("Quaternary (Neotoma) sites aren't supported in Compare yet"); return; }
+    fillCompareSlot(pickTarget, d);
+    pickTarget = null;
+    return;
+  }
+  closeCompareUI(); // a normal locality click replaces whatever the detail panel was showing
   if (d._src === "neotoma") { openNeotomaSite(d); return; }
   const panel = $("detail");
   const body = $("detail-body");
@@ -1980,6 +1987,328 @@ function taxonCard(o, isMatch = false) {
       </div>
     </div>
   </div>`;
+}
+
+/* =========================================================================
+ * Compare two localities/formations — pick two sides (a single PBDB
+ * collection, or a whole formation aggregated across every collection that
+ * shares its name), diff their fossil lists, and look for other formations
+ * with a similar assemblage. Renders into the existing #detail panel, the
+ * same one openLocality() uses, so open/close/layout all come for free.
+ * ========================================================================= */
+let pickTarget = null; // 'A' | 'B' while armed to catch the next globe click
+const cmpMode = { A: "locality", B: "locality" }; // which kind of name search each empty slot uses
+const cmpSlots = { A: null, B: null }; // filled slot: { kind, label, place, ageTxt, ref, excludeFormation, taxa, capped }
+const cmpSearchState = { A: { timer: null, req: 0, list: [], active: -1 }, B: { timer: null, req: 0, list: [], active: -1 } };
+// Per-slot tokens (not one shared counter) — filling slot B while slot A's
+// taxa fetch is still in flight must not cancel slot A's own result.
+const cmpTaxaToken = { A: 0, B: 0 };
+const cmpSimilarToken = { A: 0, B: 0 };
+
+function openCompareUI() {
+  $("detail").classList.remove("hidden");
+  $("timescale").classList.add("detail-open");
+  $("layers-btn").classList.add("detail-open");
+  $("layers-pop").classList.add("detail-open");
+  $("compare-btn").classList.add("on");
+  pickTarget = null;
+  $("detail-body").innerHTML = `
+    <h2>Compare localities</h2>
+    <p class="loading-row">Pick two localities or formations — click markers on the globe, or search by name — to see their fossils side by side.</p>
+    <div class="cmp-cols">
+      <div class="cmp-slot" id="cmp-slot-A"></div>
+      <div class="cmp-slot" id="cmp-slot-B"></div>
+    </div>
+    <div id="cmp-result"></div>
+    <div class="chips"><span class="chip">Data: Paleobiology Database (paleobiodb.org), CC-BY.</span></div>`;
+  renderCmpSlot("A");
+  renderCmpSlot("B");
+  renderComparison();
+}
+
+/* Called whenever the detail panel stops showing the compare view (closed, or
+ * overwritten by a normal locality click) so the toggle button and any armed
+ * "pick on globe" state don't linger. */
+function closeCompareUI() {
+  $("compare-btn").classList.remove("on");
+  pickTarget = null;
+}
+
+/* Fill a slot from a globe click or a locality search pick — both hand us the
+ * same record shape the rest of the app already uses (oid/nam/sfm/cc2/stp/...). */
+function fillCompareSlot(side, d) {
+  cmpSlots[side] = {
+    kind: "locality",
+    label: d.nam || "Unnamed locality",
+    place: [d.stp, countryName(d.cc2)].filter(Boolean).join(", "),
+    ageTxt: fmtAge(d.eag, d.lag),
+    ref: { collId: String(d.oid || "").replace(/\D/g, "") },
+    excludeFormation: d.sfm || null,
+    taxa: null,
+  };
+  renderCmpSlot(side);
+  renderComparison();
+  loadSlotTaxa(side);
+}
+
+function fillCompareSlotFormation(side, formation, sample) {
+  cmpSlots[side] = {
+    kind: "formation",
+    label: formation,
+    place: sample ? [sample.stp, countryName(sample.cc2)].filter(Boolean).join(", ") : "",
+    ageTxt: sample ? fmtAge(sample.eag, sample.lag) : "",
+    ref: { formation },
+    excludeFormation: formation,
+    taxa: null,
+  };
+  renderCmpSlot(side);
+  renderComparison();
+  loadSlotTaxa(side);
+}
+
+function clearCompareSlot(side) {
+  cmpSlots[side] = null;
+  renderCmpSlot(side);
+  renderComparison();
+}
+
+/* Fetch every occurrence for a locality (one collection) or a formation
+ * (aggregated across every collection sharing that name) and dedupe to a
+ * taxon-name → {name, rnk} map, the same key renderTaxa() already uses. */
+async function loadSlotTaxa(side) {
+  const s = cmpSlots[side];
+  if (!s) return;
+  const my = ++cmpTaxaToken[side];
+  try {
+    const url = s.kind === "formation"
+      ? `${PBDB}/occs/list.json?formation=${encodeURIComponent(s.ref.formation)}&show=class&limit=3000`
+      : `${PBDB}/occs/list.json?coll_id=${s.ref.collId}&show=class&limit=500`;
+    const json = await (await fetch(url)).json();
+    if (my !== cmpTaxaToken[side] || cmpSlots[side] !== s) return; // superseded by a newer fill/clear
+    const recs = json.records || [];
+    const taxa = new Map();
+    for (const o of recs) {
+      const name = o.tna || o.idn;
+      if (!name) continue;
+      if (!taxa.has(name)) taxa.set(name, { name, rnk: o.rnk });
+    }
+    s.taxa = taxa;
+    s.capped = s.kind === "formation" && recs.length >= 3000;
+  } catch (e) {
+    s.taxa = new Map();
+    s.error = true;
+  }
+  if (my === cmpTaxaToken[side]) { renderCmpSlot(side); renderComparison(); }
+}
+
+function renderCmpSlot(side) {
+  const el = $(`cmp-slot-${side}`);
+  if (!el) return;
+  const s = cmpSlots[side];
+  if (s) {
+    const kindLabel = s.kind === "formation" ? "Formation" : "Locality";
+    const status = s.error ? "Could not load taxa"
+      : !s.taxa ? "Loading taxa…"
+      : `${s.taxa.size} taxa${s.capped ? " (capped sample)" : ""}`;
+    el.classList.add("cmp-filled");
+    el.innerHTML = `
+      <button type="button" class="cmp-clear" data-cmp-clear="${side}" title="Clear">✕</button>
+      <div class="cmp-name">${esc(s.label)}</div>
+      <div class="cmp-meta">${kindLabel}${s.place ? " · " + esc(s.place) : ""}${s.ageTxt ? " · " + esc(s.ageTxt) : ""}<br/>${esc(status)}</div>`;
+    return;
+  }
+  el.classList.remove("cmp-filled");
+  const mode = cmpMode[side];
+  el.innerHTML = `
+    <div class="cmp-slot-head"><b>Slot ${side}</b>
+      <div class="cmp-mode">
+        <button type="button" class="${mode === "locality" ? "on" : ""}" data-cmp-mode="${side}:locality">Locality</button>
+        <button type="button" class="${mode === "formation" ? "on" : ""}" data-cmp-mode="${side}:formation">Formation</button>
+      </div>
+    </div>
+    <div class="suggest-wrap">
+      <input type="text" class="cmp-search" data-cmp-search="${side}" autocomplete="off"
+        placeholder="${mode === "formation" ? "e.g. Morrison, Hell Creek…" : "Search a locality name…"}" />
+      <div class="suggest hidden"></div>
+    </div>
+    <button type="button" class="ghost cmp-pick" data-cmp-pick="${side}">${pickTarget === side ? "🎯 Click a marker on the globe…" : "🎯 Pick on globe"}</button>`;
+  wireCmpSearch(side);
+}
+
+/* Debounced name search for one empty slot — locality mode fuzzy-matches
+ * collection names (coll_match), formation mode fuzzy-matches strat names
+ * (strat) and dedupes on the returned formation field. Mirrors the debounce/
+ * arrow-key/click-to-pick interaction of createTaxonPicker() without its
+ * tree-browsing machinery, which doesn't apply to a flat name search. */
+function wireCmpSearch(side) {
+  const el = $(`cmp-slot-${side}`);
+  const input = el.querySelector(".cmp-search");
+  const box = el.querySelector(".suggest");
+  if (!input || !box) return;
+  const st = cmpSearchState[side];
+  st.list = []; st.active = -1;
+  input.addEventListener("input", () => {
+    clearTimeout(st.timer);
+    const q = input.value.trim();
+    if (q.length < 2) { box.classList.add("hidden"); box.innerHTML = ""; return; }
+    st.timer = setTimeout(() => cmpSearch(side, q), 180);
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { box.classList.add("hidden"); return; }
+    if (box.classList.contains("hidden") || !st.list.length) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); st.active = (st.active + 1) % st.list.length; syncCmpActive(side); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); st.active = (st.active - 1 + st.list.length) % st.list.length; syncCmpActive(side); }
+    else if (e.key === "Enter" && st.active >= 0) { e.preventDefault(); pickCmpResult(side, st.active); }
+  });
+  box.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    const row = e.target.closest("[data-idx]");
+    if (row) pickCmpResult(side, +row.dataset.idx);
+  });
+}
+
+function syncCmpActive(side) {
+  const el = $(`cmp-slot-${side}`);
+  el.querySelectorAll(".opt").forEach((o, i) => o.classList.toggle("active", i === cmpSearchState[side].active));
+}
+
+async function cmpSearch(side, q) {
+  const st = cmpSearchState[side];
+  const my = ++st.req;
+  const mode = cmpMode[side];
+  const el = $(`cmp-slot-${side}`);
+  const box = el && el.querySelector(".suggest");
+  if (!box) return;
+  try {
+    if (mode === "formation") {
+      const json = await (await fetch(`${PBDB}/colls/list.json?strat=${encodeURIComponent(q)}&show=loc&limit=60`)).json();
+      const seen = new Map();
+      for (const r of (json.records || [])) {
+        if (r.sfm && !seen.has(r.sfm)) seen.set(r.sfm, r);
+      }
+      st.list = [...seen.values()].slice(0, 10).map((r) => ({ kind: "formation", label: r.sfm, sample: r }));
+    } else {
+      const json = await (await fetch(`${PBDB}/colls/list.json?coll_match=${encodeURIComponent(q)}&show=loc&limit=10`)).json();
+      st.list = (json.records || []).map((r) => ({ kind: "locality", label: r.nam || "Unnamed locality", rec: r }));
+    }
+    if (my !== st.req) return; // superseded by a newer keystroke
+    st.active = -1;
+    box.innerHTML = st.list.length
+      ? st.list.map((item, i) => `<div class="opt" data-idx="${i}">
+          <span class="nm">${esc(item.label)}</span>
+          ${item.kind === "formation"
+            ? `<span class="ct">${esc(item.sample.oei || "")}</span>`
+            : `<span class="rk">${esc(item.rec.sfm || "")}</span><span class="ct">${esc(item.rec.oei || "")}</span>`}
+        </div>`).join("")
+      : `<div class="grp">No matches — check the spelling</div>`;
+    box.classList.remove("hidden");
+  } catch (e) { /* network blip — leave the box as-is */ }
+}
+
+function pickCmpResult(side, idx) {
+  const item = cmpSearchState[side].list[idx];
+  if (!item) return;
+  const el = $(`cmp-slot-${side}`);
+  const box = el && el.querySelector(".suggest");
+  if (box) { box.classList.add("hidden"); box.innerHTML = ""; }
+  if (item.kind === "formation") fillCompareSlotFormation(side, item.label, item.sample);
+  else fillCompareSlot(side, item.rec);
+}
+
+/* Diff the two filled slots' taxon sets and render Shared / Only-in-A /
+ * Only-in-B, matching on exact taxon name (the same key renderTaxa() uses). */
+function renderComparison() {
+  const box = $("cmp-result");
+  if (!box) return;
+  const a = cmpSlots.A, b = cmpSlots.B;
+  if (!a || !b) { box.innerHTML = ""; return; }
+  if (a.error || b.error) {
+    box.innerHTML = `<div class="loading-row">Could not load taxa for ${a.error ? esc(a.label) : esc(b.label)}.</div>`;
+    return;
+  }
+  if (!a.taxa || !b.taxa) { box.innerHTML = `<div class="loading-row">Loading taxa…</div>`; return; }
+
+  const namesA = new Set(a.taxa.keys()), namesB = new Set(b.taxa.keys());
+  const shared = [...namesA].filter((n) => namesB.has(n)).sort((x, y) => x.localeCompare(y));
+  const onlyA = [...namesA].filter((n) => !namesB.has(n)).sort((x, y) => x.localeCompare(y));
+  const onlyB = [...namesB].filter((n) => !namesA.has(n)).sort((x, y) => x.localeCompare(y));
+  const union = namesA.size + namesB.size - shared.length;
+  const overlapPct = union ? Math.round((shared.length / union) * 100) : 0;
+
+  const rows = (names, taxa, cap = 80) => {
+    const shown = names.slice(0, cap).map((n) => {
+      const t = taxa.get(n);
+      return `<div class="cmp-tx-row"><span class="nm">${esc(n)}</span><span class="rk">${esc(RANK[t.rnk] || "")}</span></div>`;
+    }).join("");
+    const more = names.length > cap ? `<div class="loading-row">…and ${names.length - cap} more</div>` : "";
+    return shown + more || `<div class="loading-row">None</div>`;
+  };
+
+  box.innerHTML = `
+    <div class="cmp-summary">
+      <span><b>${shared.length}</b>shared</span>
+      <span><b>${onlyA.length}</b>only in A</span>
+      <span><b>${onlyB.length}</b>only in B</span>
+      <span><b>${overlapPct}%</b>overlap</span>
+    </div>
+    ${a.capped || b.capped ? `<p class="loading-row">${a.capped ? esc(a.label) : esc(b.label)} has more occurrences than the 3,000-record sample used here — treat its counts as approximate.</p>` : ""}
+    <div class="cmp-col-head">Shared <span>${shared.length}</span></div>
+    ${rows(shared, a.taxa)}
+    <div class="cmp-col-head">Only in ${esc(a.label)} <span>${onlyA.length}</span></div>
+    ${rows(onlyA, a.taxa)}
+    <div class="cmp-col-head">Only in ${esc(b.label)} <span>${onlyB.length}</span></div>
+    ${rows(onlyB, b.taxa)}
+    <div class="cmp-col-head">Find similar formations</div>
+    <div class="chips">
+      <button type="button" class="chip" data-cmp-similar="A">🔎 Formations like ${esc(a.label)}</button>
+      <button type="button" class="chip" data-cmp-similar="B">🔎 Formations like ${esc(b.label)}</button>
+    </div>
+    <div class="cmp-similar" id="cmp-similar-A"></div>
+    <div class="cmp-similar" id="cmp-similar-B"></div>`;
+}
+
+/* "Similar formations" — a scoped approximation, not a full pairwise scan of
+ * every formation on Earth: take up to 25 of this slot's most diagnostic
+ * taxa (genus/species-rank identifications, ranks 2-5 in RANK, since broad
+ * clades like "Dinosauria" match almost everything and aren't useful signal),
+ * fetch every occurrence of those taxa in one request, and rank the other
+ * formations that turn up by how many of those 25 taxa they share. */
+async function findSimilarFormations(side) {
+  const s = cmpSlots[side];
+  const resultEl = $(`cmp-similar-${side}`);
+  if (!s || !resultEl) return;
+  if (!s.taxa) { resultEl.innerHTML = `<div class="loading-row">Still loading this side's taxa…</div>`; return; }
+  const entries = [...s.taxa.values()];
+  const diagnostic = entries.filter((t) => t.rnk >= 2 && t.rnk <= 5);
+  const pool = (diagnostic.length >= 8 ? diagnostic : entries).slice(0, 25);
+  if (!pool.length) { resultEl.innerHTML = `<div class="loading-row">Not enough identified taxa here to compare.</div>`; return; }
+  resultEl.innerHTML = `<div class="loading-row">Searching PBDB for similar formations…</div>`;
+  const my = ++cmpSimilarToken[side];
+  try {
+    const url = `${PBDB}/occs/list.json?base_name=${encodeURIComponent(pool.map((t) => t.name).join(","))}&show=strat&limit=3000`;
+    const json = await (await fetch(url)).json();
+    if (my !== cmpSimilarToken[side]) return; // superseded by a newer slot fill/clear
+    const tally = new Map(); // formation name -> Set of matched reference-taxon names
+    for (const o of (json.records || [])) {
+      const fm = o.sfm;
+      if (!fm || fm === s.excludeFormation) continue;
+      const name = o.tna || o.idn;
+      if (!name) continue;
+      let set = tally.get(fm);
+      if (!set) { set = new Set(); tally.set(fm, set); }
+      set.add(name);
+    }
+    const ranked = [...tally.entries()].sort((x, y) => y[1].size - x[1].size).slice(0, 6);
+    const otherSide = side === "A" ? "B" : "A";
+    resultEl.innerHTML = ranked.length
+      ? `<div class="stat-sec">Similar to ${esc(s.label)} <small>(of ${pool.length} diagnostic taxa checked)</small></div>
+         <div class="stat-chips">${ranked.map(([fm, set]) =>
+           `<button type="button" class="stat-chip" data-cmp-load-formation="${esc(fm)}" data-cmp-side="${otherSide}"
+              title="Load into Slot ${otherSide}">${esc(fm)} <b>${set.size}/${pool.length}</b></button>`).join("")}</div>`
+      : `<div class="loading-row">No overlapping formations found.</div>`;
+  } catch (e) {
+    if (my === cmpSimilarToken[side]) resultEl.innerHTML = `<div class="loading-row">Could not search for similar formations.</div>`;
+  }
 }
 
 /* Country-code → readable name for every code PBDB returns (also the source for
@@ -2500,7 +2829,10 @@ rgBox.addEventListener("mousedown", (e) => {
 
 /* One outside-click handler closes whichever picker is open. */
 document.addEventListener("mousedown", (e) => {
-  if (!e.target.closest(".suggest-wrap")) { taxonPicker.hide(); excludePicker.hide(); rgHide(); }
+  if (!e.target.closest(".suggest-wrap")) {
+    taxonPicker.hide(); excludePicker.hide(); rgHide();
+    document.querySelectorAll(".cmp-slot .suggest").forEach((b) => b.classList.add("hidden"));
+  }
 });
 
 /* ----------------------------------------------------------------- Wire up --- */
@@ -2530,6 +2862,8 @@ $("detail-close").addEventListener("click", () => {
   $("timescale").classList.remove("detail-open");
   $("layers-btn").classList.remove("detail-open");
   $("layers-pop").classList.remove("detail-open");
+  $("compare-btn").classList.remove("detail-open");
+  closeCompareUI();
 });
 // Switch the detail view to another collection at the same site (inline browse).
 $("detail").addEventListener("click", (e) => {
@@ -2542,7 +2876,30 @@ $("detail").addEventListener("click", (e) => {
   }
   // Tapping a taxon card's blurb expands it to the full Wikipedia extract.
   const desc = e.target.closest(".tx-desc");
-  if (desc) desc.classList.toggle("expanded");
+  if (desc) { desc.classList.toggle("expanded"); return; }
+
+  // ----- Compare view delegated actions -----
+  const clearBtn = e.target.closest("[data-cmp-clear]");
+  if (clearBtn) { clearCompareSlot(clearBtn.dataset.cmpClear); return; }
+  const modeBtn = e.target.closest("[data-cmp-mode]");
+  if (modeBtn) {
+    const [side, mode] = modeBtn.dataset.cmpMode.split(":");
+    cmpMode[side] = mode;
+    renderCmpSlot(side);
+    return;
+  }
+  const pickBtn = e.target.closest("[data-cmp-pick]");
+  if (pickBtn) {
+    const side = pickBtn.dataset.cmpPick;
+    pickTarget = pickTarget === side ? null : side;
+    if (pickTarget) flash(`Click a locality on the globe for Slot ${side}…`);
+    renderCmpSlot("A"); renderCmpSlot("B");
+    return;
+  }
+  const similarBtn = e.target.closest("[data-cmp-similar]");
+  if (similarBtn) { findSimilarFormations(similarBtn.dataset.cmpSimilar); return; }
+  const loadFmBtn = e.target.closest("[data-cmp-load-formation]");
+  if (loadFmBtn) { fillCompareSlotFormation(loadFmBtn.dataset.cmpSide, loadFmBtn.dataset.cmpLoadFormation, null); return; }
 });
 $("panel-toggle").addEventListener("click", () => $("panel").classList.remove("collapsed"));
 $("panel-close").addEventListener("click", () => $("panel").classList.add("collapsed"));
@@ -2570,6 +2927,9 @@ document.addEventListener("click", (e) => {
     layersPop.classList.add("hidden"); layersBtn.classList.remove("on");
   }
 });
+
+/* ----- Compare toggle ----- */
+$("compare-btn").addEventListener("click", openCompareUI);
 
 /* ----- Active-filter chips: the live query as removable pills ----- */
 function renderFilterChips() {
