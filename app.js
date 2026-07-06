@@ -171,8 +171,14 @@ globe.onZoom((pov) => onCameraChange(pov.altitude));
 globe.controls().addEventListener("change", () =>
   onCameraChange(globe.pointOfView().altitude));
 
+// Declared here (ahead of the event-marker setup much further down, in the
+// "Event rings" section) so the resize() call below — which runs immediately,
+// before that section executes — can safely check readiness without hitting
+// the temporal dead zone on a `let` that hasn't been declared yet.
+let eventMarkersReady = false;
 function resize() {
   globe.width(window.innerWidth).height(window.innerHeight);
+  if (eventMarkersReady) layoutEventMarkers(); // screen coords depend on viewport size
 }
 window.addEventListener("resize", resize);
 resize();
@@ -1297,25 +1303,66 @@ async function updatePlateBoundaries() {
 
 /* Event rings — impacts (☄) and large igneous provinces (🌋) within the selected
  * span, pulsed at their *modern* coordinates (so only shown on the modern globe,
- * not the paleo reconstruction where positions would be wrong). A clickable
- * label sits at the same spot (rings alone aren't interactive in globe.gl) and
- * jumps to that event's row in the Results panel, mirroring how a locality dot
- * opens its detail panel. */
+ * not the paleo reconstruction where positions would be wrong). */
 globe.ringColor((d) => (t) => d._type === "impact"
   ? `rgba(255,80,60,${(1 - t) * 0.9})` : `rgba(255,160,40,${(1 - t) * 0.9})`)
   .ringMaxRadius((d) => d._type === "impact" ? 2.4 : 3.2)
-  .ringPropagationSpeed(1.4).ringRepeatPeriod(1500).ringAltitude(0.012)
-  .labelText("icon").labelSize(1.35).labelColor("#fff").labelIncludeDot(false)
-  .labelAltitude(0.012).labelResolution(3).labelLabel((d) => `<div>${esc(d.name)} — click for details</div>`)
-  .onLabelClick((d) => focusEventInList(d.name))
-  .onLabelHover((d) => { document.body.style.cursor = d ? "pointer" : ""; });
+  .ringPropagationSpeed(1.4).ringRepeatPeriod(1500).ringAltitude(0.012);
+
+/* A clickable icon sits on each ring (rings alone aren't interactive in
+ * globe.gl) and jumps to that event's row in the Results panel, mirroring how
+ * a locality dot opens its detail panel. This is a hand-rolled HTML overlay,
+ * positioned every frame via globe.gl's screen-projection helpers, rather than
+ * globe.gl's own htmlElements layer — that layer's internal CSS2DRenderer
+ * never sizes itself correctly in this bundle (stays 0×0, so nothing ever
+ * appears) and its labels layer alternative can't render emoji glyphs (it
+ * draws text as 3D geometry from a typeface with no emoji support). */
+const evMarkerLayer = document.createElement("div");
+evMarkerLayer.id = "ev-marker-layer";
+document.body.appendChild(evMarkerLayer);
+let currentEventMarkers = [];
+const evMarkerEls = new Map(); // name -> DOM node, reused across frames
+eventMarkersReady = true;
+function layoutEventMarkers() {
+  const seen = new Set();
+  const camPos = globe.camera().position;
+  const camLen = Math.hypot(camPos.x, camPos.y, camPos.z) || 1;
+  for (const m of currentEventMarkers) {
+    seen.add(m.name);
+    let el = evMarkerEls.get(m.name);
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "ev-marker";
+      el.textContent = m.icon;
+      el.title = `${m.name} — click for details`;
+      el.addEventListener("click", (ev) => { ev.stopPropagation(); focusEventInList(m.name); });
+      evMarkerLayer.appendChild(el);
+      evMarkerEls.set(m.name, el);
+    }
+    // Hide markers on the far side of the globe — same near/far test as the
+    // underlying points layer, done by hand since this overlay bypasses it.
+    const p = globe.getCoords(m.lat, m.lng, 0.02);
+    const pLen = Math.hypot(p.x, p.y, p.z) || 1;
+    const facingCamera = (p.x * camPos.x + p.y * camPos.y + p.z * camPos.z) / (pLen * camLen) > 0.15;
+    if (!facingCamera) { el.style.display = "none"; continue; }
+    const { x, y } = globe.getScreenCoords(m.lat, m.lng, 0.02);
+    el.style.display = "";
+    el.style.left = `${x.toFixed(1)}px`;
+    el.style.top = `${y.toFixed(1)}px`;
+  }
+  for (const [name, el] of evMarkerEls) {
+    if (!seen.has(name)) { el.remove(); evMarkerEls.delete(name); }
+  }
+}
+globe.controls().addEventListener("change", layoutEventMarkers); // keep markers glued to the globe while dragging/zooming/spinning
 function updateEventRings() {
-  if (usePaleo) { globe.ringsData([]); globe.labelsData([]); return; }
+  if (!eventMarkersReady) return; // buildTopScale() runs before this section initializes
+  if (usePaleo) { globe.ringsData([]); currentEventMarkers = []; layoutEventMarkers(); return; }
   const evs = eventsInSpan(currentSpanMa()).filter((e) => e.ma <= 545 && e.lat != null && eventVisible(e));
-  const marked = evs.map((e) => ({ lat: e.lat, lng: e.lng, _type: e.type, name: e.name,
+  currentEventMarkers = evs.map((e) => ({ lat: e.lat, lng: e.lng, _type: e.type, name: e.name,
     icon: e.tags.map((t) => EVENT_ICONS[t]).join("") }));
-  globe.ringsData(marked);
-  globe.labelsData(marked);
+  globe.ringsData(currentEventMarkers);
+  layoutEventMarkers();
 }
 /* Scroll to (and briefly highlight) an event's row in the Results panel,
  * opening the panel and switching tabs first if needed. */

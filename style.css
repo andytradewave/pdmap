@@ -25,6 +25,15 @@ html, body {
 
 #globe { position: fixed; inset: 0; }
 
+/* Overlay holding the clickable event-marker icons (see layoutEventMarkers in
+ * app.js) — sits above the globe canvas but below the side panel/timescale. */
+#ev-marker-layer { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+/* Clickable icon marking an impact/LIP on the globe, sitting on its pulsing ring */
+.ev-marker { position: absolute; top: 0; left: 0; pointer-events: auto; font-size: 15px; line-height: 1;
+  cursor: pointer; transform: translate(-50%, -50%);
+  filter: drop-shadow(0 0 3px #000) drop-shadow(0 0 2px #000); transition: transform 0.15s ease; }
+.ev-marker:hover { transform: translate(-50%, -50%) scale(1.35); }
+
 a { color: var(--accent); }
 
 /* ===== Filter panel ===== */
