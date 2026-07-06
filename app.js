@@ -266,9 +266,10 @@ buildLegend(); // draw the offline fallback legend immediately
 
 /* -------------------------------------------------- Geologic timescale --- */
 /* A colourful, drill-down timescale pinned to the top of the page. The header
- * is a single eon/era row covering all of geological time — the three Precambrian
- * eons compressed to a fixed width on the left (they're ~8× longer than the
- * Phanerozoic and would otherwise crush the scale), then the Phanerozoic eras.
+ * has an Eon row covering all of geological time — the three Precambrian eons
+ * compressed to a fixed width (they're ~8× longer than the Phanerozoic and
+ * would otherwise crush the scale) — and, below it, an Era row for the
+ * Phanerozoic's own eras, zoomed to fill the width.
  * Selecting an eon/era opens its periods below it, a period opens its epochs, an
  * epoch its ages — each row zoomed to fill the width and showing only the
  * children of the chosen branch, so everything the tree exposes is reachable by
@@ -277,7 +278,6 @@ buildLegend(); // draw the offline fallback legend immediately
  * search uses. */
 const intByName = (name) => INTERVALS.find((x) => x.name === name);
 const DEPTH = { eon: 0, era: 1, period: 2, epoch: 3, age: 4 };
-const PRECAMBRIAN_EON_FLEX = 60; // fixed (compressed) width per Precambrian eon
 const TM_MAX = 541;              // time-machine scrubber spans the Phanerozoic (Ma)
 
 /* Walk a node up to its ancestor of the given level (or itself if it matches). */
@@ -296,8 +296,8 @@ function scaleOfType(type) {
   return INTERVALS.filter((it) => it.type === type && it.max <= 545 && it.max - it.min > 0)
     .sort((a, b) => b.max - a.max); // oldest on the left
 }
-function precambrianEons() {
-  return INTERVALS.filter((it) => it.type === "eon" && it.max > 545 && it.max - it.min > 0)
+function eonsRow() {
+  return INTERVALS.filter((it) => it.type === "eon" && it.max - it.min > 0)
     .sort((a, b) => b.max - a.max);
 }
 
@@ -403,12 +403,18 @@ const ALMANAC = [
 
 // An event's tags decide both its filter category (see EVENT_CATEGORIES) and
 // which icon(s) it draws — an event with several tags shows several icons.
-const EVENT_ICONS = { impact: "☄️", volcano: "🌋", extinction: "☠️", thermal: "🌡️", turnover: "🌸" };
+const EVENT_ICONS = { impact: "☄️", volcano: "🌋", extinction: "☠️", thermal: "🌡️", turnover: "🌸", glacial: "❄️" };
 const EVENT_CATEGORIES = [
   { tag: "impact", label: "Impacts" }, { tag: "volcano", label: "Volcanism" },
   { tag: "extinction", label: "Extinctions" }, { tag: "thermal", label: "Hyperthermals" },
-  { tag: "turnover", label: "Turnovers" },
+  { tag: "glacial", label: "Glaciations" }, { tag: "turnover", label: "Turnovers" },
 ];
+// Title colour by category, so an event's name reads as extinction/impact/etc.
+// at a glance instead of every title looking identical. When an event carries
+// several tags, the earliest-listed one here wins (extinction is the most
+// consequential, so it takes priority over e.g. a volcano tag on the same event).
+const EVENT_COLORS = { extinction: "#ff6b6b", impact: "#e8c14d", volcano: "#ffb14c", glacial: "#4cc2ff", thermal: "#ff8a5c", turnover: "#d98cd8" };
+const eventColor = (tags) => EVENT_COLORS[Object.keys(EVENT_COLORS).find((t) => tags.includes(t))] || null;
 
 // Major confirmed impacts. [name, Ma, lat, lng, crater diameter km, tags,
 // Wikipedia title]. Only Chicxulub is tagged extinction — the rest are
@@ -469,10 +475,28 @@ const EPOCH_EVENTS = [
     note: "Flowering-plant radiation and pollinator co-evolution — KTR and ATR are two proposed timeframes for the same broad turnover, definitions vary" },
   // The other four of the "big five" mass extinctions are already represented by their
   // volcanic/impact cause above (Viluy Traps, Siberian Traps, CAMP, Deccan Traps/Chicxulub);
-  // the end-Ordovician has no comparable LIP and is tied to glaciation, not volcanism.
-  { name: "End-Ordovician", start: 445.2, end: 443.8, tags: ["extinction"], linked: [],
+  // the end-Ordovician has no comparable LIP and is tied to glaciation, not volcanism (below).
+  { name: "End-Ordovician", start: 445.2, end: 443.8, tags: ["extinction"], linked: ["Andean-Saharan glaciation"],
     wiki: "Late Ordovician mass extinction",
     note: "~85% of species lost in two pulses tied to rapid Hirnantian glaciation and sea-level fall, then a return to anoxic warmth" },
+  // Major glaciations, plus the Quaternary's own mass extinction (megafauna loss),
+  // which — unlike the "big five" — was driven by climate swings and rising humans
+  // rather than a LIP or impact, so it has no entry above.
+  { name: "Andean-Saharan glaciation", start: 445, end: 420, tags: ["glacial"], linked: ["End-Ordovician"],
+    wiki: "Hirnantian glaciation",
+    note: "Also called the Hirnantian glaciation — rapid Gondwanan ice-sheet growth and sea-level fall that drove the end-Ordovician extinction pulses" },
+  { name: "Late Paleozoic Ice Age", start: 360, end: 260, tags: ["glacial"], linked: [],
+    wiki: "Late Paleozoic icehouse",
+    note: "Formerly called the Karoo Ice Age — Gondwana's polar ice sheets waxed and waned through the Carboniferous and into the early Permian" },
+  { name: "Cryogenian glaciation", start: 717, end: 635, tags: ["glacial"], linked: [],
+    wiki: "Snowball Earth",
+    note: "The Sturtian and Marinoan 'Snowball Earth' episodes — among the most severe ice ages in Earth's history, likely freezing the oceans close to the equator" },
+  { name: "Quaternary glaciation", start: 2.58, end: 0, tags: ["glacial"], linked: ["Quaternary mass extinction"],
+    wiki: "Quaternary glaciation",
+    note: "The current ice age — cyclical glacial/interglacial swings paced by Milankovitch orbital cycles; we're in an interglacial now" },
+  { name: "Quaternary mass extinction", start: 0.05, end: 0.004, tags: ["extinction"], linked: ["Quaternary glaciation"],
+    wiki: "Late Pleistocene extinctions",
+    note: "Loss of most large-bodied megafauna (mammoths, ground sloths, giant marsupials) across the Late Pleistocene–Holocene, linked to climate swings and the spread of humans" },
 ];
 
 /* Linear interpolation over an anchor table keyed by Ma in column 0. */
@@ -510,7 +534,7 @@ function currentSpanMa() {
   const mx = $("f-maxma").value, mn = $("f-minma").value;
   if (mx || mn) return [Math.min(+mx, +mn), Math.max(+mx, +mn)];
   if (selectedInterval) { const it = intByName(selectedInterval); if (it) return [it.min, it.max]; }
-  return [0, 0];
+  return [0, Infinity]; // "All time" — no bound, so every event/site qualifies
 }
 
 /* Impacts + LIPs + named episodes whose age falls within (or overlaps) the
@@ -582,7 +606,7 @@ const eventVisible = (e) => e.tags.some((t) => !eventFiltersOff.has(t));
 
 // Episodes need finer precision than fmtMa's whole-number rounding above 10 Ma
 // (else a narrow range like PETM's 56–55.8 collapses to "56–56 Ma").
-const fmtEvBound = (v) => Number.isInteger(v) ? String(v) : (+v).toFixed(1);
+const fmtEvBound = (v) => Number.isInteger(v) ? String(v) : (+v).toFixed(v < 1 ? 3 : 1);
 
 /* Display name suffix, age string, and the "· extra bit" appended after the
  * age — used for both the compact meta line and the full hover tooltip. */
@@ -615,7 +639,7 @@ function eventsHtml(allEvents) {
       <div class="wt-event" data-wiki-name="${esc(e.name)}" data-wiki-type="${e.type}" data-wiki-title="${esc(e.wiki || "")}">
         <div class="wt-ev-row" title="${detail.replace(/"/g, "&quot;")}">
           <span class="wt-ev-ic">${icon}</span>
-          <span class="wt-ev-nm">${esc(nm)}</span>
+          <span class="wt-ev-nm" style="color:${eventColor(e.tags) || "var(--text)"}">${esc(nm)}</span>
           <span class="wt-ev-meta">${meta}</span>
           <a class="wt-ev-wiki hidden" target="_blank" rel="noopener" title="Open on Wikipedia" aria-label="Open on Wikipedia">📖</a>
           ${e.lat != null ? `<button type="button" class="wt-ev-fly" data-lat="${e.lat}" data-lng="${e.lng}"
@@ -762,15 +786,15 @@ function syncTopScale() {
   // chosen yet, stays fully lit.
   const dimRow = (nodes) => nodes.some((n) => active.has(n.name));
 
-  const eons = precambrianEons();
+  const eons = eonsRow();
   const eras = scaleOfType("era");
-  // Header: a single eon/era row. Precambrian eons are compressed to a fixed
-  // share so they don't crush the proportional eras.
-  const headerNodes = [...eons, ...eras];
-  const headerDim = dimRow(headerNodes);
+  // Header: an Eon row, all four eons given equal width (their real durations
+  // are wildly lopsided — the Phanerozoic is ~8x shorter than the Precambrian
+  // eons — so proportional sizing would crush one side or the other), then an
+  // Era row for the Phanerozoic's own eras, zoomed to fill the width.
   const dur = (n) => n.max - n.min;
-  let html = tsRowHtml("Eon · Era",
-    tsBar(headerNodes, active, headerDim, (n) => n.type === "eon" ? PRECAMBRIAN_EON_FLEX : dur(n)));
+  let html = tsRowHtml("Eon", tsBar(eons, active, dimRow(eons), () => 1));
+  html += tsRowHtml("Era", tsBar(eras, active, dimRow(eras), dur));
 
   // Drill rows: the selected eon/era's periods, then its epochs, then its ages —
   // only the chosen branch, each row zoomed to fill the width.
@@ -1604,6 +1628,7 @@ async function openLocality(d) {
   const collNo = String(d.oid || "").replace(/\D/g, "");
   const place = [d.stp, countryName(d.cc2)].filter(Boolean).join(", ");
   const mapsHref = `https://www.google.com/maps/search/?api=1&query=${d._mlat},${d._mlng}`;
+  const period = d.eag != null ? bandFor(+d.eag) : null; // containing geologic period, for the age chip
 
   // Other collections plotted at this exact spot — show them as an inline,
   // switchable list so the various collections at the point can be browsed here.
@@ -1626,7 +1651,7 @@ async function openLocality(d) {
     <h2>${esc(d.nam || "Unnamed locality")}</h2>
     <div class="chips">
       <span class="chip age" style="border-color:${d.color};color:${d.color}">
-        ${esc(d.oei || "")}${d.oli && d.oli !== d.oei ? "–" + esc(d.oli) : ""}</span>
+        ${period ? esc(period.name) + " · " : ""}${esc(d.oei || "")}${d.oli && d.oli !== d.oei ? "–" + esc(d.oli) : ""}</span>
       <span class="chip">${fmtAge(d.eag, d.lag)}${d.eag != null ? tmIcon(+d.eag, +d.lag) : ""}</span>
     </div>
     <div class="meta">
@@ -1681,10 +1706,11 @@ function openNeotomaSite(d) {
   const types = [...(d._ntypes || [])];
   const siteid = String(d.oid).replace("neo:", "");
   const mapsHref = `https://www.google.com/maps/search/?api=1&query=${d._mlat},${d._mlng}`;
+  const period = d.eag != null ? bandFor(+d.eag) : null; // containing geologic period, for the age chip
   body.innerHTML = `
     <h2>${esc(d.nam)}</h2>
     <div class="chips">
-      <span class="chip age" style="border-color:${d.color};color:${d.color}">${esc(types.join(", ") || "Neotoma site")}</span>
+      <span class="chip age" style="border-color:${d.color};color:${d.color}">${period ? esc(period.name) + " · " : ""}${esc(types.join(", ") || "Neotoma site")}</span>
       <span class="chip">${fmtAge(d.eag, d.lag)}</span>
     </div>
     <div class="meta">
