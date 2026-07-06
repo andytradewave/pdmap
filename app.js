@@ -516,6 +516,52 @@ function almanacAt(ma) {
   return { day, sea, sr, daysYear: 8766 / day }; // ~constant 8766 h/year
 }
 
+/* Present-day Köppen-style latitude bands, in degrees from the equator.
+ * Boundaries shift ~2°/°C with the era's global-mean-temp anomaly (from
+ * climateAt) — a greenhouse world pushes the tropics and temperate belt
+ * poleward and removes permanent polar ice; an icehouse world compresses
+ * everything toward the equator. First-order estimate from paleolatitude
+ * alone — real local climate also depends on paleogeography (ocean
+ * currents, mountains, coast vs continental interior), which this ignores. */
+const CLIMATE_BANDS = [
+  { max: 10, zone: "Equatorial", desc: "hot & wet year-round (ITCZ)" },
+  { max: 23.5, zone: "Tropical", desc: "hot, wet/dry season" },
+  { max: 35, zone: "Subtropical arid", desc: "hot, low rainfall (subtropical high belt)" },
+  { max: 55, zone: "Temperate", desc: "four seasons, moderate rainfall" },
+  { max: 66.5, zone: "Cool temperate / boreal", desc: "cold winters, short summers" },
+  { max: 90, zone: "Polar", desc: "permanent cold" },
+];
+function paleoClimateZone(paleoLat, ma) {
+  if (paleoLat == null) return null;
+  const c = climateAt(ma);
+  const dT = c ? c.temp - CLIM_TODAY.temp : 0;
+  const shift = Math.max(-25, Math.min(25, dT * 2.2));
+  const effLat = Math.max(0, Math.abs(paleoLat) - shift);
+  const band = CLIMATE_BANDS.find((b) => effLat <= b.max) || CLIMATE_BANDS[CLIMATE_BANDS.length - 1];
+  const iceFree = band.zone === "Polar" && dT > 4; // greenhouse world: no permanent ice at the pole
+  return {
+    zone: iceFree ? "Cool temperate (ice-free pole)" : band.zone,
+    desc: iceFree ? "cold dark winters but no permanent ice, per Cretaceous/Eocene polar forests" : band.desc,
+  };
+}
+
+/* Classic lithological climate proxies — real geological evidence (as
+ * opposed to paleoClimateZone's modeled estimate above) for the handful of
+ * rock types that carry an unambiguous climate signal. */
+const LITH_CLIMATE_HINTS = [
+  { re: /coal|lignite|peat/i, hint: "coal — likely humid, swampy" },
+  { re: /evaporite|gypsum|halite|anhydrite/i, hint: "evaporite — arid, high evaporation" },
+  { re: /tillite|diamictite|glacial/i, hint: "glacial deposit — ice age" },
+  { re: /laterite|bauxite/i, hint: "laterite — humid tropical weathering" },
+  { re: /red\s?bed/i, hint: "red beds — oxidizing, often seasonally arid" },
+  { re: /reef|carbonate|limestone/i, hint: "carbonate/reef — warm shallow sea" },
+];
+function lithClimateHint(lith) {
+  if (!lith) return null;
+  const hit = LITH_CLIMATE_HINTS.find((h) => h.re.test(lith));
+  return hit ? hit.hint : null;
+}
+
 /* The age (Ma) the panels describe (a single representative value) and the full
  * span of the selected context (used to pick events that fall within it). */
 function currentAgeMa() {
@@ -1650,6 +1696,12 @@ async function openLocality(d) {
       ${place ? `<b>Location:</b> ${esc(place)}<br/>` : ""}
       <b>Coordinates:</b> ${d._mlat.toFixed(3)}, ${d._mlng.toFixed(3)}
       ${d._plat != null ? `<br/><b>Paleo-coords (then):</b> ${d._plat.toFixed(1)}, ${d._plng.toFixed(1)}` : ""}
+      ${(() => {
+        if (d._plat == null) return "";
+        const midMa = d.eag != null ? (+d.eag + (d.lag != null ? +d.lag : +d.eag)) / 2 : null;
+        const cz = paleoClimateZone(d._plat, midMa);
+        return cz ? `<br/><b>Local paleoclimate (est.):</b> ${esc(cz.zone)} <small>— ${esc(cz.desc)}</small>` : "";
+      })()}
       ${d.env ? `<br/><b>Environment:</b> ${esc(d.env)}` : ""}
     </div>
     ${siteHtml}
@@ -1784,11 +1836,13 @@ async function fetchMacro(d, token) {
     const lith = (u.lith || "").split(/[,;]/).slice(0, 3).map((s) => s.trim()).filter(Boolean).join(", ");
     const span = [u.b_int, u.t_int].filter(Boolean);
     const age = span.length ? (span[0] === span[1] ? span[0] : `${span[0]} – ${span[1]}`) : "";
+    const climHint = lithClimateHint(lith);
     const rows = [
       u.strat_name && ["Unit", u.strat_name],
       u.name && u.name !== u.strat_name && ["Map unit", u.name],
       lith && ["Lithology", lith],
       age && ["Age", age],
+      climHint && ["Climate signal", climHint],
     ].filter(Boolean);
     box.innerHTML = `<div class="macro-head">Bedrock context <span class="macro-src">Macrostrat</span></div>
       ${rows.map(([k, v]) => `<div class="macro-row"><b>${esc(k)}:</b> ${esc(v)}</div>`).join("")}`;
