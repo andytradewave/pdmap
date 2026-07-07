@@ -2302,7 +2302,7 @@ async function loadSlotTaxa(side) {
     for (const o of recs) {
       const name = o.tna || o.idn;
       if (!name) continue;
-      if (!taxa.has(name)) taxa.set(name, { name, rnk: o.rnk, phl: o.phl, cll: o.cll });
+      if (!taxa.has(name)) taxa.set(name, { name, rnk: o.rnk, phl: o.phl, cll: o.cll, odl: o.odl, fml: o.fml });
     }
     s.taxa = taxa;
     s.capped = s.kind === "formation" && recs.length >= 3000;
@@ -2480,14 +2480,13 @@ function renderComparison() {
     return shown + more || `<div class="loading-row">None</div>`;
   };
 
-  // Grouped by the higher classification each taxon actually belongs to
-  // (class, or phylum when no class is on record) so e.g. every dinosaur —
-  // genus, family or order rank alike — lands in one "Reptilia" group
-  // instead of being scattered across separate rank-only buckets. Each
+  // Grouped by family — the level most people actually recognise related
+  // fossils by (e.g. Tyrannosauridae, Ceratopsidae) — falling back to order,
+  // class or phylum for anything only identified above family rank. Each
   // group is a collapsible <details> block so a long diff doesn't read as
   // one giant flat list.
   const cleanCls = (v) => (v && !/^NO_.*_SPECIFIED$/.test(v)) ? v : null;
-  const groupLabel = (t) => cleanCls(t.cll) || cleanCls(t.phl) || "Unclassified";
+  const groupLabel = (t) => cleanCls(t.fml) || cleanCls(t.odl) || cleanCls(t.cll) || cleanCls(t.phl) || "Unclassified";
   const tableHtml = () => {
     const all = [...shared.map((n) => [n, "both"]), ...onlyA.map((n) => [n, "A"]), ...onlyB.map((n) => [n, "B"])];
     const groups = new Map(); // classification label -> [name, where][]
@@ -2790,9 +2789,10 @@ function taxonLineage(name) {
 /* A few taxa where PBDB's own classification opinion disagrees with the
  * widely-accepted cladogram — e.g. their Maniraptora entry lists Avialae as a
  * direct child (sibling of Paraves) rather than nested inside Paraves, where
- * every recent phylogeny puts birds. Corrected by hand here: pulled out of
- * the PBDB-listed parent's children and spliced into the true parent's. */
-const TAXON_REPARENT = { Avialae: "Paraves" };
+ * every recent phylogeny puts birds; similarly Aves belongs inside Avialae,
+ * not as its sibling. Corrected by hand here: pulled out of the PBDB-listed
+ * parent's children and spliced into the true parent's. */
+const TAXON_REPARENT = { Avialae: "Paraves", Aves: "Avialae" };
 
 /* One taxon's own record (name/oid/rank/count), no children — used to fetch a
  * TAXON_REPARENT entry so it can be injected under its corrected parent. */
