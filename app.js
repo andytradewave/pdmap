@@ -407,7 +407,7 @@ const EVENT_CATEGORIES = [
 // at a glance instead of every title looking identical. When an event carries
 // several tags, the earliest-listed one here wins (extinction is the most
 // consequential, so it takes priority over e.g. a volcano tag on the same event).
-const EVENT_COLORS = { extinction: "#ff6b6b", impact: "#e8c14d", volcano: "#ffb14c", glacial: "#4cc2ff", thermal: "#ff8a5c", turnover: "#d98cd8" };
+const EVENT_COLORS = { extinction: "#ff5c5c", impact: "#ffe14d", volcano: "#ff7f2a", glacial: "#4cc2ff", thermal: "#ff5d9e", turnover: "#c77dff" };
 const eventColor = (tags) => EVENT_COLORS[Object.keys(EVENT_COLORS).find((t) => tags.includes(t))] || null;
 
 // Major confirmed impacts. [name, Ma, lat, lng, crater diameter km, tags,
@@ -676,10 +676,12 @@ function eventsHtml(allEvents) {
       const detail = `${esc(nm)} · ${meta}` + (e.lat != null ? ` · ${fmtLatLng(e.lat, e.lng)}` : "")
         + (e.note ? ` — ${esc(e.note)}` : "");
       return `
-      <div class="wt-event" data-wiki-name="${esc(e.name)}" data-wiki-type="${e.type}" data-wiki-title="${esc(e.wiki || "")}">
-        <div class="wt-ev-row" title="${detail.replace(/"/g, "&quot;")}">
+      <div class="wt-event" data-wiki-name="${esc(e.name)}" data-wiki-type="${e.type}" data-wiki-title="${esc(e.wiki || "")}" title="${detail.replace(/"/g, "&quot;")}">
+        <div class="wt-ev-title">
           <span class="wt-ev-ic">${icon}</span>
           <span class="wt-ev-nm" style="color:${eventColor(e.tags) || "var(--text)"}">${esc(nm)}</span>
+        </div>
+        <div class="wt-ev-sub">
           <span class="wt-ev-meta">${meta}</span>
           <a class="wt-ev-wiki hidden" target="_blank" rel="noopener" title="Open on Wikipedia" aria-label="Open on Wikipedia">📖</a>
           ${e.lat != null ? `<button type="button" class="wt-ev-fly" data-lat="${e.lat}" data-lng="${e.lng}"
@@ -1051,9 +1053,12 @@ async function search() {
  * stratigraphic range (first/last appearance), with a ⏳ button to point the
  * time machine straight at that range. Mirrors PBDB's Taxon Info tool inline. */
 let taxonInfoToken = 0;
+let taxonInfoRec = null;    // the taxon record currently shown, for the occ/subtaxa expanders
+let taxonExpandView = null; // "occ" | "subtaxa" | null — which inline list (if any) is open
 async function updateTaxonInfo(name) {
   const box = $("taxon-info");
   if (!box) return;
+  taxonInfoRec = null; taxonExpandView = null; // any expanded list belongs to the previous taxon
   if (!name) { box.classList.add("hidden"); box.innerHTML = ""; return; }
   const my = ++taxonInfoToken;
   box.classList.remove("hidden");
@@ -1070,6 +1075,7 @@ async function updateTaxonInfo(name) {
 }
 
 function renderTaxonInfo(r) {
+  taxonInfoRec = r;
   const box = $("taxon-info");
   const name = r.nam || currentTaxon;
   const imgId = r.img ? String(r.img).replace(/\D/g, "") : null;
@@ -1108,14 +1114,105 @@ function renderTaxonInfo(r) {
         ${r.nm2 ? `<div class="ti-common">“${esc(r.nm2)}”</div>` : ""}
         <div class="ti-facts">
           ${r.att ? `<span title="Naming authority">${esc(r.att)}</span>` : ""}
-          ${r.noc != null ? `<span><b>${(+r.noc).toLocaleString()}</b> occ.</span>` : ""}
-          ${r.siz != null && +r.siz > 1 ? `<span><b>${(+r.siz).toLocaleString()}</b> subtaxa</span>` : ""}
+          ${r.noc != null ? `<button type="button" class="ti-stat" data-view="occ" title="View occurrences"><b>${(+r.noc).toLocaleString()}</b> occ.</button>` : ""}
+          ${r.siz != null && +r.siz > 1 ? `<button type="button" class="ti-stat" data-view="subtaxa" title="View subtaxa"><b>${(+r.siz).toLocaleString()}</b> subtaxa</button>` : ""}
           <span class="ti-tag ${extinct ? "ext" : "extant"}">${extinct ? "Extinct" : "Living members"}</span>
         </div>
       </div>
     </div>
     ${rangeHtml}
-    ${pbdb ? `<div class="chips"><a class="chip" target="_blank" rel="noopener" href="${pbdb}">📄 PBDB taxon page</a></div>` : ""}`;
+    ${pbdb ? `<div class="chips"><a class="chip" target="_blank" rel="noopener" href="${pbdb}">📄 PBDB taxon page</a></div>` : ""}
+    <div class="ti-expand hidden"></div>`;
+}
+
+/* Toggle the inline occurrence/subtaxa list under the taxon-info card. Clicking
+ * the same stat again collapses it; switching stats replaces the content. */
+let taxonExpandToken = 0;
+async function toggleTaxonExpand(view) {
+  const rec = taxonInfoRec;
+  const expand = $("taxon-info").querySelector(".ti-expand");
+  if (!rec || !expand) return;
+  const my = ++taxonExpandToken;
+  if (taxonExpandView === view) { // second click on the open stat — collapse it
+    taxonExpandView = null;
+    expand.classList.add("hidden"); expand.innerHTML = "";
+    syncTaxonStatButtons();
+    return;
+  }
+  taxonExpandView = view;
+  syncTaxonStatButtons();
+  expand.classList.remove("hidden");
+  expand.innerHTML = `<div class="loading-row">Loading…</div>`;
+  try {
+    const html = view === "occ" ? renderOccurrenceList(await fetchTaxonOccurrenceSample(rec), rec)
+      : renderSubtaxaList(await fetchTaxonChildren({ oid: rec.oid, name: rec.nam }), rec);
+    if (my !== taxonExpandToken) return; // superseded by another click
+    expand.innerHTML = html;
+  } catch (e) {
+    if (my === taxonExpandToken) expand.innerHTML = `<div class="loading-row">Couldn't load — try again.</div>`;
+  }
+}
+
+function syncTaxonStatButtons() {
+  $("taxon-info").querySelectorAll(".ti-stat")
+    .forEach((b) => b.classList.toggle("active", b.dataset.view === taxonExpandView));
+}
+
+/* An uncapped sample of a taxon's own occurrences (not its subtaxa's), just
+ * enough fields to show formation / country / age per row. */
+async function fetchTaxonOccurrenceSample(rec) {
+  const txNo = String(rec.oid || "").replace(/\D/g, "");
+  const params = new URLSearchParams();
+  if (txNo) params.set("base_id", txNo); else params.set("base_name", rec.nam);
+  params.set("show", "loc,strat,time");
+  params.set("limit", "200");
+  const json = await (await fetch(`${PBDB}/occs/list.json?${params}`)).json();
+  return json.records || [];
+}
+
+function renderOccurrenceList(occs, rec) {
+  if (!occs.length) return `<div class="loading-row">No occurrences found.</div>`;
+  const rows = occs.map((o) => {
+    const early = o.oei || "", late = o.oli || early;
+    const ivlTxt = early ? (early === late ? early : `${early} – ${late}`) : "";
+    const meta = [o.sfm, o.cc2, ivlTxt].filter(Boolean).join(" · ");
+    return `<div class="ti-list-row"><span class="nm">${esc(o.idn || o.tna || rec.nam)}</span>
+      ${meta ? `<span class="meta">${esc(meta)}</span>` : ""}</div>`;
+  }).join("");
+  const total = +rec.noc || occs.length;
+  const note = occs.length < total
+    ? `Showing ${occs.length.toLocaleString()} of ${total.toLocaleString()} occurrences.`
+    : `${occs.length.toLocaleString()} occurrence${occs.length === 1 ? "" : "s"}.`;
+  return `<div class="ti-list-head">Occurrences</div><div class="ti-list">${rows}</div>
+    <div class="ti-list-note">${note}</div>`;
+}
+
+function renderSubtaxaList(kids, rec) {
+  if (!kids.length) return `<div class="loading-row">No subtaxa with fossil occurrences found.</div>`;
+  const rows = kids.map((k) => `<button type="button" class="ti-list-row pick" data-pick-taxon="${esc(k.name)}">
+      <span class="nm">${esc(k.name)}</span>${k.rnk ? `<span class="rk">${esc(k.rnk)}</span>` : ""}
+      <span class="meta">${k.noc.toLocaleString()} occ.</span></button>`).join("");
+  const total = +rec.siz || kids.length;
+  const note = kids.length < total
+    ? `Showing top ${kids.length.toLocaleString()} of ${total.toLocaleString()} subtaxa — click a name to search it.`
+    : `Click a name to search it.`;
+  return `<div class="ti-list-head">Subtaxa</div><div class="ti-list">${rows}</div>
+    <div class="ti-list-note">${note}</div>`;
+}
+
+$("taxon-info").addEventListener("click", (e) => {
+  const stat = e.target.closest(".ti-stat");
+  if (stat) { toggleTaxonExpand(stat.dataset.view); return; }
+  const pick = e.target.closest("[data-pick-taxon]");
+  if (pick) { e.preventDefault(); pickSubtaxon(pick.dataset.pickTaxon); }
+});
+
+/* Drill into a subtaxon picked from the inline list — mirrors the taxon
+ * picker's onPick (set the field, refresh the lineage tooltip, re-search). */
+function pickSubtaxon(name) {
+  taxonInput.value = name;
+  taxonLineage(name).then((p) => { taxonInput.title = p || name; });
+  search();
 }
 
 /* ------------------------------------------------------------- Export --- */
@@ -1655,7 +1752,15 @@ let openToken = 0;
 async function openLocality(d) {
   if (pickTarget) {
     if (d._src === "neotoma") { flash("Quaternary (Neotoma) sites aren't supported in Compare yet"); return; }
-    fillCompareSlot(pickTarget, d);
+    // Respect the slot's Locality/Formation toggle rather than always filling
+    // a single locality — picking a marker while in Formation mode should load
+    // the whole formation that marker belongs to.
+    if (cmpMode[pickTarget] === "formation") {
+      if (!d.sfm) { flash("This locality has no formation on record — try Locality mode instead"); pickTarget = null; return; }
+      fillCompareSlotFormation(pickTarget, d.sfm, d);
+    } else {
+      fillCompareSlot(pickTarget, d);
+    }
     pickTarget = null;
     return;
   }
@@ -1998,12 +2103,18 @@ function taxonCard(o, isMatch = false) {
  * ========================================================================= */
 let pickTarget = null; // 'A' | 'B' while armed to catch the next globe click
 const cmpMode = { A: "locality", B: "locality" }; // which kind of name search each empty slot uses
-const cmpSlots = { A: null, B: null }; // filled slot: { kind, label, place, ageTxt, ref, excludeFormation, taxa, capped }
+let cmpView = "list"; // "list" | "table" — how the fossil diff below is rendered
+// Which of the Shared/Only-A/Only-B fossil lists have been expanded past their
+// default cap — reset whenever a slot is (re)filled so a new comparison starts collapsed.
+const cmpExpand = { shared: false, onlyA: false, onlyB: false };
+const cmpSlots = { A: null, B: null }; // filled slot: { kind, label, place, ageTxt, ref, excludeFormation, taxa, capped, mlat, mlng, plat, plng, midMa, geo }
 const cmpSearchState = { A: { timer: null, req: 0, list: [], active: -1 }, B: { timer: null, req: 0, list: [], active: -1 } };
 // Per-slot tokens (not one shared counter) — filling slot B while slot A's
 // taxa fetch is still in flight must not cancel slot A's own result.
 const cmpTaxaToken = { A: 0, B: 0 };
 const cmpSimilarToken = { A: 0, B: 0 };
+const cmpGeoToken = { A: 0, B: 0 };
+const cmpSampleToken = { A: 0, B: 0 };
 
 function openCompareUI() {
   $("detail").classList.remove("hidden");
@@ -2034,9 +2145,24 @@ function closeCompareUI() {
   pickTarget = null;
 }
 
+/* Modern/paleo coordinates + a representative age, pulled from whatever record
+ * seeded a slot (a globe click carries the app's own _mlat/_plat aliases; a
+ * name-search pick carries PBDB's raw lat/pla fields) — used to look up that
+ * slot's paleoclimate and bedrock context. */
+function slotGeoSeed(d) {
+  if (!d) return {};
+  const mlat = d._mlat ?? (d.lat != null ? +d.lat : null);
+  const mlng = d._mlng ?? (d.lng != null ? +d.lng : null);
+  const plat = d._plat ?? (d.pla != null ? +d.pla : null);
+  const plng = d._plng ?? (d.pln != null ? +d.pln : null);
+  const midMa = d.eag != null ? (+d.eag + (d.lag != null ? +d.lag : +d.eag)) / 2 : null;
+  return { mlat, mlng, plat, plng, midMa };
+}
+
 /* Fill a slot from a globe click or a locality search pick — both hand us the
  * same record shape the rest of the app already uses (oid/nam/sfm/cc2/stp/...). */
 function fillCompareSlot(side, d) {
+  cmpExpand.shared = cmpExpand.onlyA = cmpExpand.onlyB = false;
   cmpSlots[side] = {
     kind: "locality",
     label: d.nam || "Unnamed locality",
@@ -2045,13 +2171,16 @@ function fillCompareSlot(side, d) {
     ref: { collId: String(d.oid || "").replace(/\D/g, "") },
     excludeFormation: d.sfm || null,
     taxa: null,
+    ...slotGeoSeed(d),
   };
   renderCmpSlot(side);
   renderComparison();
   loadSlotTaxa(side);
+  loadSlotGeology(side);
 }
 
 function fillCompareSlotFormation(side, formation, sample) {
+  cmpExpand.shared = cmpExpand.onlyA = cmpExpand.onlyB = false;
   cmpSlots[side] = {
     kind: "formation",
     label: formation,
@@ -2060,14 +2189,63 @@ function fillCompareSlotFormation(side, formation, sample) {
     ref: { formation },
     excludeFormation: formation,
     taxa: null,
+    ...slotGeoSeed(sample),
   };
   renderCmpSlot(side);
   renderComparison();
   loadSlotTaxa(side);
+  if (sample) loadSlotGeology(side);
+  else loadSlotSample(side); // no click/search record to seed coords from (e.g. "similar formations") — fetch one
+}
+
+/* "Load into slot" from the similar-formations list hands us just a name, with
+ * no representative collection to seed paleoclimate/geology from — fetch the
+ * single most-collected site in that formation to stand in for one. */
+async function loadSlotSample(side) {
+  const s = cmpSlots[side];
+  if (!s) return;
+  const my = ++cmpSampleToken[side];
+  try {
+    const json = await (await fetch(`${PBDB}/colls/list.json?formation=${encodeURIComponent(s.ref.formation)}&show=loc,paleoloc&limit=1&pgm=scotese`)).json();
+    if (my !== cmpSampleToken[side] || cmpSlots[side] !== s) return;
+    const rec = (json.records || [])[0];
+    if (!rec) return;
+    Object.assign(s, slotGeoSeed(rec));
+    if (!s.place) s.place = [rec.stp, countryName(rec.cc2)].filter(Boolean).join(", ");
+    if (!s.ageTxt) s.ageTxt = fmtAge(rec.eag, rec.lag);
+    renderCmpSlot(side);
+    renderComparison();
+    loadSlotGeology(side);
+  } catch (e) { /* leave geology/climate blank — the taxa diff still works */ }
+}
+
+/* Macrostrat bedrock context for one compare slot, mirroring fetchMacro() for
+ * the single-locality detail panel. For a formation, this is just one
+ * representative site's bedrock, not every outcrop the formation covers. */
+async function loadSlotGeology(side) {
+  const s = cmpSlots[side];
+  if (!s || s.mlat == null || s.mlng == null) return;
+  const my = ++cmpGeoToken[side];
+  try {
+    const res = await fetch(`${MACRO}?lat=${s.mlat}&lng=${s.mlng}`);
+    const data = (await res.json())?.success?.data || [];
+    if (my !== cmpGeoToken[side] || cmpSlots[side] !== s) return;
+    const u = data[0] || null;
+    if (u) {
+      const lith = (u.lith || "").split(/[,;]/).slice(0, 3).map((x) => x.trim()).filter(Boolean).join(", ");
+      s.geo = { unit: u.strat_name || u.name || "", lith, climHint: lithClimateHint(lith) };
+    } else {
+      s.geo = null;
+    }
+  } catch (e) {
+    if (my === cmpGeoToken[side]) s.geo = null;
+  }
+  if (my === cmpGeoToken[side]) renderComparison();
 }
 
 function clearCompareSlot(side) {
   cmpSlots[side] = null;
+  cmpExpand.shared = cmpExpand.onlyA = cmpExpand.onlyB = false;
   renderCmpSlot(side);
   renderComparison();
 }
@@ -2181,14 +2359,14 @@ async function cmpSearch(side, q) {
   if (!box) return;
   try {
     if (mode === "formation") {
-      const json = await (await fetch(`${PBDB}/colls/list.json?strat=${encodeURIComponent(q)}&show=loc&limit=60`)).json();
+      const json = await (await fetch(`${PBDB}/colls/list.json?strat=${encodeURIComponent(q)}&show=loc,paleoloc&limit=60&pgm=scotese`)).json();
       const seen = new Map();
       for (const r of (json.records || [])) {
         if (r.sfm && !seen.has(r.sfm)) seen.set(r.sfm, r);
       }
       st.list = [...seen.values()].slice(0, 10).map((r) => ({ kind: "formation", label: r.sfm, sample: r }));
     } else {
-      const json = await (await fetch(`${PBDB}/colls/list.json?coll_match=${encodeURIComponent(q)}&show=loc&limit=10`)).json();
+      const json = await (await fetch(`${PBDB}/colls/list.json?coll_match=${encodeURIComponent(q)}&show=loc,paleoloc&limit=10&pgm=scotese`)).json();
       st.list = (json.records || []).map((r) => ({ kind: "locality", label: r.nam || "Unnamed locality", rec: r }));
     }
     if (my !== st.req) return; // superseded by a newer keystroke
@@ -2215,6 +2393,28 @@ function pickCmpResult(side, idx) {
   else fillCompareSlot(side, item.rec);
 }
 
+/* Global atmosphere/temperature at a slot's age (the same model the "World at
+ * this time" card uses) plus a local paleolatitude-based climate-zone estimate
+ * and, if it loaded, the Macrostrat bedrock at its representative coordinates. */
+function slotEnvHtml(s) {
+  if (s.midMa == null) return `<td class="muted-note">No age on record</td>`;
+  const c = climateAt(s.midMa);
+  const zone = s.plat != null ? paleoClimateZone(s.plat, s.midMa) : null;
+  const rows = [`~${fmtMa(s.midMa)} Ma`];
+  if (c) rows.push(`${Math.round(c.co2).toLocaleString()} ppm CO₂ · ${c.o2.toFixed(0)}% O₂ · ${c.temp.toFixed(0)} °C`);
+  else rows.push(`No whole-Earth estimate before ~541 Ma`);
+  if (zone) rows.push(`${esc(zone.zone)} <small>(local est., ${esc(zone.desc)})</small>`);
+  if (s.mlat == null) { /* no representative coordinates — nothing to look up */ }
+  else if (s.geo === undefined) rows.push(`<span class="muted-note">Looking up bedrock…</span>`);
+  else if (s.geo === null) { /* no Macrostrat coverage here — say nothing */ }
+  else {
+    const bits = [s.geo.unit, s.geo.lith].filter(Boolean).join(" — ");
+    if (bits) rows.push(bits + (s.kind === "formation" ? " <small>(representative site)</small>" : ""));
+    if (s.geo.climHint) rows.push(`<small>${esc(s.geo.climHint)}</small>`);
+  }
+  return `<td>${rows.join("<br/>")}</td>`;
+}
+
 /* Diff the two filled slots' taxon sets and render Shared / Only-in-A /
  * Only-in-B, matching on exact taxon name (the same key renderTaxa() uses). */
 function renderComparison() {
@@ -2235,13 +2435,29 @@ function renderComparison() {
   const union = namesA.size + namesB.size - shared.length;
   const overlapPct = union ? Math.round((shared.length / union) * 100) : 0;
 
-  const rows = (names, taxa, cap = 80) => {
-    const shown = names.slice(0, cap).map((n) => {
+  const rows = (key, names, taxa, cap = 80) => {
+    const expanded = cmpExpand[key];
+    const shown = names.slice(0, expanded ? names.length : cap).map((n) => {
       const t = taxa.get(n);
       return `<div class="cmp-tx-row"><span class="nm">${esc(n)}</span><span class="rk">${esc(RANK[t.rnk] || "")}</span></div>`;
     }).join("");
-    const more = names.length > cap ? `<div class="loading-row">…and ${names.length - cap} more</div>` : "";
+    const more = !expanded && names.length > cap
+      ? `<button type="button" class="cmp-more" data-cmp-more="${key}">…and ${names.length - cap} more</button>` : "";
     return shown + more || `<div class="loading-row">None</div>`;
+  };
+
+  const tableHtml = () => {
+    const all = [...shared.map((n) => [n, "both"]), ...onlyA.map((n) => [n, "A"]), ...onlyB.map((n) => [n, "B"])]
+      .sort((x, y) => x[0].localeCompare(y[0]));
+    return `<table class="cmp-table">
+      <thead><tr><th>Taxon</th><th>Rank</th><th title="${esc(a.label)}">A</th><th title="${esc(b.label)}">B</th></tr></thead>
+      <tbody>${all.map(([n, where]) => {
+        const t = a.taxa.get(n) || b.taxa.get(n);
+        return `<tr><td class="nm">${esc(n)}</td><td class="rk">${esc(RANK[t.rnk] || "")}</td>
+          <td class="${where !== "B" ? "yes" : ""}">${where !== "B" ? "✓" : ""}</td>
+          <td class="${where !== "A" ? "yes" : ""}">${where !== "A" ? "✓" : ""}</td></tr>`;
+      }).join("")}</tbody>
+    </table>`;
   };
 
   box.innerHTML = `
@@ -2252,12 +2468,24 @@ function renderComparison() {
       <span><b>${overlapPct}%</b>overlap</span>
     </div>
     ${a.capped || b.capped ? `<p class="loading-row">${a.capped ? esc(a.label) : esc(b.label)} has more occurrences than the 3,000-record sample used here — treat its counts as approximate.</p>` : ""}
+    <div class="cmp-col-head">Paleoclimate &amp; geology</div>
+    <table class="cmp-table cmp-env">
+      <thead><tr><th></th><th>${esc(a.label)}</th><th>${esc(b.label)}</th></tr></thead>
+      <tbody><tr><td class="rk">At deposition</td>${slotEnvHtml(a)}${slotEnvHtml(b)}</tr></tbody>
+    </table>
+    <div class="cmp-col-head">Fossils
+      <div class="cmp-mode cmp-view-toggle">
+        <button type="button" class="${cmpView === "list" ? "on" : ""}" data-cmp-view="list">List</button>
+        <button type="button" class="${cmpView === "table" ? "on" : ""}" data-cmp-view="table">Table</button>
+      </div>
+    </div>
+    ${cmpView === "table" ? tableHtml() : `
     <div class="cmp-col-head">Shared <span>${shared.length}</span></div>
-    ${rows(shared, a.taxa)}
+    ${rows("shared", shared, a.taxa)}
     <div class="cmp-col-head">Only in ${esc(a.label)} <span>${onlyA.length}</span></div>
-    ${rows(onlyA, a.taxa)}
+    ${rows("onlyA", onlyA, a.taxa)}
     <div class="cmp-col-head">Only in ${esc(b.label)} <span>${onlyB.length}</span></div>
-    ${rows(onlyB, b.taxa)}
+    ${rows("onlyB", onlyB, b.taxa)}`}
     <div class="cmp-col-head">Find similar formations</div>
     <div class="chips">
       <button type="button" class="chip" data-cmp-similar="A">🔎 Formations like ${esc(a.label)}</button>
@@ -2503,6 +2731,22 @@ function taxonLineage(name) {
   return p;
 }
 
+/* A few taxa where PBDB's own classification opinion disagrees with the
+ * widely-accepted cladogram — e.g. their Maniraptora entry lists Avialae as a
+ * direct child (sibling of Paraves) rather than nested inside Paraves, where
+ * every recent phylogeny puts birds. Corrected by hand here: pulled out of
+ * the PBDB-listed parent's children and spliced into the true parent's. */
+const TAXON_REPARENT = { Avialae: "Paraves" };
+
+/* One taxon's own record (name/oid/rank/count), no children — used to fetch a
+ * TAXON_REPARENT entry so it can be injected under its corrected parent. */
+function fetchTaxonRecord(name) {
+  return fetch(`${PBDB}/taxa/list.json?name=${encodeURIComponent(name)}&status=accepted&show=size`)
+    .then((r) => r.json())
+    .then((d) => (d.records || [])[0] || null)
+    .catch(() => null);
+}
+
 /* Children of a taxon, fetched once and shared between every picker. */
 const taxChildCache = new Map();
 function fetchTaxonChildren(node) {
@@ -2512,7 +2756,18 @@ function fetchTaxonChildren(node) {
                        : `name=${encodeURIComponent(node.name)}`;
   const p = fetch(`${PBDB}/taxa/list.json?${sel}&rel=children&status=accepted&show=size`)
     .then((r) => r.json())
-    .then((d) => (d.records || [])
+    .then(async (d) => {
+      let recs = (d.records || [])
+        .filter((r) => !(r.nam in TAXON_REPARENT) || TAXON_REPARENT[r.nam] === node.name);
+      for (const [child, trueParent] of Object.entries(TAXON_REPARENT)) {
+        if (trueParent === node.name && !recs.some((r) => r.nam === child)) {
+          const extra = await fetchTaxonRecord(child);
+          if (extra) recs = [...recs, extra];
+        }
+      }
+      return recs;
+    })
+    .then((recs) => recs
       .map((r) => ({ name: r.nam, oid: r.oid, rnk: RANK[+r.rnk] || "", noc: +r.noc || 0,
         children: null, expanded: false, loading: false }))
       .filter((c) => c.noc > 0)        // only groups that actually have fossils
@@ -2900,6 +3155,10 @@ $("detail").addEventListener("click", (e) => {
   if (similarBtn) { findSimilarFormations(similarBtn.dataset.cmpSimilar); return; }
   const loadFmBtn = e.target.closest("[data-cmp-load-formation]");
   if (loadFmBtn) { fillCompareSlotFormation(loadFmBtn.dataset.cmpSide, loadFmBtn.dataset.cmpLoadFormation, null); return; }
+  const moreBtn = e.target.closest("[data-cmp-more]");
+  if (moreBtn) { cmpExpand[moreBtn.dataset.cmpMore] = true; renderComparison(); return; }
+  const viewBtn = e.target.closest("[data-cmp-view]");
+  if (viewBtn) { cmpView = viewBtn.dataset.cmpView; renderComparison(); return; }
 });
 $("panel-toggle").addEventListener("click", () => $("panel").classList.remove("collapsed"));
 $("panel-close").addEventListener("click", () => $("panel").classList.add("collapsed"));
