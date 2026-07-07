@@ -433,10 +433,18 @@ button:hover { filter: brightness(1.08); }
 .cmp-table th, .cmp-table td { padding: 4px 6px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
 .cmp-table th { color: var(--muted); font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 0.4px; }
 .cmp-table .nm { font-style: italic; }
-.cmp-table .rk { color: var(--muted); font-size: 10px; white-space: nowrap; }
-.cmp-table thead th:nth-child(3), .cmp-table thead th:nth-child(4),
-.cmp-table tbody td:nth-child(3), .cmp-table tbody td:nth-child(4) { text-align: center; width: 28px; }
+.cmp-table th.yn, .cmp-table td.yn { text-align: center; width: 28px; }
 .cmp-table tbody td.yes { color: var(--accent); font-weight: 700; }
+.cmp-rank-group { margin: 2px 0; }
+.cmp-rank-group + .cmp-rank-group { border-top: 1px solid var(--border); }
+.cmp-rank-group summary {
+  cursor: pointer; list-style: none; display: flex; align-items: baseline; justify-content: space-between;
+  font-size: 12px; font-weight: 600; padding: 7px 2px;
+}
+.cmp-rank-group summary::-webkit-details-marker { display: none; }
+.cmp-rank-group summary::before { content: "▸"; margin-right: 6px; color: var(--muted); font-size: 10px; }
+.cmp-rank-group[open] summary::before { content: "▾"; }
+.cmp-rank-group summary span { color: var(--muted); font-weight: 400; font-size: 11px; }
 .cmp-env { margin-bottom: 4px; }
 .cmp-env th:nth-child(2), .cmp-env th:nth-child(3), .cmp-env td:nth-child(2), .cmp-env td:nth-child(3) { width: 40%; text-align: left; }
 .cmp-env td.muted-note, .cmp-env td .muted-note { font-size: 11px; }

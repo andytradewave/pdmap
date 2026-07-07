@@ -234,6 +234,7 @@ let INTERVALS = PERIODS.map((p) => // sensible offline default
 let selectedInterval = "";
 let selectedRegion = "";          // PBDB cc code (continent or country); "" = whole world
 let usePaleo = false;             // ancient-Earth (paleo-coordinate) mode
+let taxa = [];                    // included taxon names — matches any of them (OR)
 let excludes = [];                // taxa subtracted from the base taxon
 let intervalRoots = [];           // top of the timescale tree (the eons)
 let intById = new Map();          // interval id -> node
@@ -938,7 +939,7 @@ let lastLimit = "2000";
  * occurrence-level export, so an export always matches what's on the globe. */
 function buildFilterParams() {
   const params = new URLSearchParams();
-  const taxon = $("f-taxon").value.trim();
+  const taxon = taxa.join(",");
   if (taxon) {
     const ex = excludes.map((s) => "^" + s).join("");
     params.set("base_name", taxon + ex);
@@ -971,12 +972,13 @@ function buildFilterParams() {
 }
 
 async function search() {
-  const taxon = $("f-taxon").value.trim();
+  const taxon = taxa.join(",");
   const maxma = $("f-maxma").value.trim();
   const minma = $("f-minma").value.trim();
   const limit = $("f-limit").value;
   currentTaxon = taxon;
-  updateTaxonInfo(taxon); // refresh the "about this taxon" card (best-effort, async)
+  // "About this taxon" only makes sense for a single selected taxon.
+  updateTaxonInfo(taxa.length === 1 ? taxa[0] : ""); // best-effort, async
 
   // Validate the custom range before going near the network. "Oldest" is the
   // larger number of millions of years; flag the two common mistakes clearly.
@@ -1242,8 +1244,8 @@ $("taxon-info").addEventListener("click", (e) => {
 /* Drill into a subtaxon picked from the inline list — mirrors the taxon
  * picker's onPick (set the field, refresh the lineage tooltip, re-search). */
 function pickSubtaxon(name) {
-  taxonInput.value = name;
-  taxonLineage(name).then((p) => { taxonInput.title = p || name; });
+  taxa = [name];
+  renderTaxonChips();
   search();
 }
 
@@ -2094,6 +2096,13 @@ const RANK = { 2: "subspecies", 3: "species", 4: "subgenus", 5: "genus", 6: "sub
   17: "class", 18: "superclass", 19: "subphylum", 20: "phylum", 21: "superphylum",
   22: "subkingdom", 23: "kingdom", 25: "unranked clade" };
 
+/* Broad-to-narrow display order for the Compare table's rank groups. Anything
+ * not listed here (an unrecognised rank, or none at all) sorts to the end. */
+const RANK_GROUP_ORDER = ["kingdom", "subkingdom", "superphylum", "phylum", "subphylum",
+  "superclass", "class", "subclass", "infraclass", "superorder", "order", "suborder",
+  "infraorder", "superfamily", "family", "subfamily", "tribe", "subtribe",
+  "genus", "subgenus", "species", "subspecies", "unranked clade"];
+
 function taxonCard(o, isMatch = false) {
   const name = o.tna || o.idn;
   const txNo = String(o.tid || "").replace(/\D/g, "");
@@ -2135,7 +2144,7 @@ function taxonCard(o, isMatch = false) {
  * ========================================================================= */
 let pickTarget = null; // 'A' | 'B' while armed to catch the next globe click
 const cmpMode = { A: "locality", B: "locality" }; // which kind of name search each empty slot uses
-let cmpView = "list"; // "list" | "table" — how the fossil diff below is rendered
+let cmpView = "table"; // "list" | "table" — how the fossil diff below is rendered
 // Which of the Shared/Only-A/Only-B fossil lists have been expanded past their
 // default cap — reset whenever a slot is (re)filled so a new comparison starts collapsed.
 const cmpExpand = { shared: false, onlyA: false, onlyB: false };
@@ -2478,18 +2487,34 @@ function renderComparison() {
     return shown + more || `<div class="loading-row">None</div>`;
   };
 
+  // Grouped by rank (kingdom → ... → species), each group a collapsible
+  // <details> block so a long diff doesn't read as one giant flat list.
   const tableHtml = () => {
-    const all = [...shared.map((n) => [n, "both"]), ...onlyA.map((n) => [n, "A"]), ...onlyB.map((n) => [n, "B"])]
-      .sort((x, y) => x[0].localeCompare(y[0]));
-    return `<table class="cmp-table">
-      <thead><tr><th>Taxon</th><th>Rank</th><th title="${esc(a.label)}">A</th><th title="${esc(b.label)}">B</th></tr></thead>
-      <tbody>${all.map(([n, where]) => {
-        const t = a.taxa.get(n) || b.taxa.get(n);
-        return `<tr><td class="nm">${esc(n)}</td><td class="rk">${esc(RANK[t.rnk] || "")}</td>
-          <td class="${where !== "B" ? "yes" : ""}">${where !== "B" ? "✓" : ""}</td>
-          <td class="${where !== "A" ? "yes" : ""}">${where !== "A" ? "✓" : ""}</td></tr>`;
-      }).join("")}</tbody>
-    </table>`;
+    const all = [...shared.map((n) => [n, "both"]), ...onlyA.map((n) => [n, "A"]), ...onlyB.map((n) => [n, "B"])];
+    const groups = new Map(); // rank label -> [name, where][]
+    for (const entry of all) {
+      const t = a.taxa.get(entry[0]) || b.taxa.get(entry[0]);
+      const label = RANK[t.rnk] || "Unranked";
+      if (!groups.has(label)) groups.set(label, []);
+      groups.get(label).push(entry);
+    }
+    const rankIndex = (label) => {
+      const i = RANK_GROUP_ORDER.indexOf(label);
+      return i === -1 ? RANK_GROUP_ORDER.length : i;
+    };
+    const labels = [...groups.keys()].sort((x, y) => rankIndex(x) - rankIndex(y));
+    return labels.map((label) => {
+      const rows = groups.get(label).sort((x, y) => x[0].localeCompare(y[0]));
+      return `<details class="cmp-rank-group" open>
+        <summary>${esc(label[0].toUpperCase() + label.slice(1))} <span>${rows.length}</span></summary>
+        <table class="cmp-table">
+          <thead><tr><th>Taxon</th><th class="yn" title="${esc(a.label)}">A</th><th class="yn" title="${esc(b.label)}">B</th></tr></thead>
+          <tbody>${rows.map(([n, where]) => `<tr><td class="nm">${esc(n)}</td>
+            <td class="yn ${where !== "B" ? "yes" : ""}">${where !== "B" ? "✓" : ""}</td>
+            <td class="yn ${where !== "A" ? "yes" : ""}">${where !== "A" ? "✓" : ""}</td></tr>`).join("")}</tbody>
+        </table>
+      </details>`;
+    }).join("");
   };
 
   box.innerHTML = `
@@ -2964,17 +2989,33 @@ function createTaxonPicker(input, box, { isSel, onPick, closeOnPick, storeKey, a
   return { renderTree, hide };
 }
 
-/* Main "Taxon name" field */
+/* Main "Taxon name" field — multiple removable chips, matched with OR (any
+ * selected taxon), same tree/search picker as "Exclude groups". */
+function renderTaxonChips() {
+  const box = $("taxon-chips");
+  box.innerHTML = taxa.map((n) =>
+    `<span class="chip-tag" data-taxon-chip="${esc(n)}">${esc(n)}<button type="button" class="x" data-rm-taxon="${esc(n)}" title="Remove">×</button></span>`).join("");
+  box.classList.toggle("empty", !taxa.length);
+  for (const n of taxa) {
+    taxonLineage(n).then((p) => { // full-path tooltip, per chip
+      const el = box.querySelector(`[data-taxon-chip="${CSS.escape(n)}"]`);
+      if (el) el.title = p || n;
+    });
+  }
+}
+function addTaxon(name) { if (!taxa.includes(name)) { taxa.push(name); renderTaxonChips(); search(); } }
+function removeTaxon(name) { taxa = taxa.filter((x) => x !== name); renderTaxonChips(); search(); }
+$("taxon-chips").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-rm-taxon]");
+  if (b) removeTaxon(b.dataset.rmTaxon);
+});
 const taxonInput = $("f-taxon");
 const taxonPicker = createTaxonPicker(taxonInput, $("taxon-suggest"), {
-  isSel: (name) => name === taxonInput.value.trim(),
-  closeOnPick: true,
+  isSel: (name) => taxa.includes(name),
+  closeOnPick: false,
+  allowFreeText: true,        // type any name + Enter to add it
   storeKey: "pdmap.tax.exp",
-  onPick: (name) => {
-    taxonInput.value = name;
-    taxonLineage(name).then((p) => { taxonInput.title = p || name; }); // full-path tooltip
-    search();
-  },
+  onPick: addTaxon,
 });
 
 /* "Exclude groups" field — multiple removable chips, same tree/search picker */
@@ -2997,6 +3038,7 @@ const excludePicker = createTaxonPicker($("f-exclude"), $("exclude-suggest"), {
   storeKey: "pdmap.exc.exp",
   onPick: addExclude,
 });
+renderTaxonChips();
 renderExcludeChips();
 
 /* =========================================================================
@@ -3128,6 +3170,7 @@ $("search-form").addEventListener("submit", (e) => {
 });
 $("btn-clear").addEventListener("click", () => {
   $("f-taxon").value = ""; $("f-exclude").value = ""; $("f-formation").value = "";
+  taxa = []; renderTaxonChips();
   excludes = []; renderExcludeChips();
   selectedInterval = "";
   $("f-maxma").value = ""; $("f-minma").value = ""; $("f-env").value = "";
@@ -3226,8 +3269,7 @@ $("compare-btn").addEventListener("click", openCompareUI);
 function renderFilterChips() {
   const box = $("filter-chips"); if (!box) return;
   const chips = [];
-  const taxon = $("f-taxon").value.trim();
-  if (taxon) chips.push({ k: "Taxon", v: taxon, clear: "taxon" });
+  for (const t of taxa) chips.push({ k: "Taxon", v: t, clear: "taxon:" + t });
   for (const x of excludes) chips.push({ k: "Exclude", v: x, clear: "exclude:" + x });
   const mx = $("f-maxma").value, mn = $("f-minma").value;
   if (mx || mn) chips.push({ k: "Time", v: `${mx || "0"}–${mn || "0"} ${$("f-unit").value}`, clear: "range" });
@@ -3243,7 +3285,7 @@ $("filter-chips").addEventListener("click", (e) => {
   const b = e.target.closest("[data-clear]"); if (!b) return;
   const c = b.dataset.clear;
   if (c === "interval") { pickInterval(""); return; } // re-runs search itself
-  if (c === "taxon") { $("f-taxon").value = ""; currentTaxon = ""; updateTaxonInfo(""); }
+  if (c.startsWith("taxon:")) { taxa = taxa.filter((x) => x !== c.slice(6)); renderTaxonChips(); }
   else if (c.startsWith("exclude:")) { excludes = excludes.filter((x) => x !== c.slice(8)); renderExcludeChips(); }
   else if (c === "range") { $("f-maxma").value = ""; $("f-minma").value = ""; }
   else if (c === "region") { setRegion(""); }
@@ -3283,7 +3325,7 @@ $("f-base").addEventListener("change", (e) => { if (!usePaleo) setBaseLayer(e.ta
  * ========================================================================= */
 function getState() {
   return {
-    taxon: $("f-taxon").value.trim(),
+    taxon: taxa.join(","),
     exclude: excludes.join("^"),
     interval: selectedInterval,
     maxma: $("f-maxma").value.trim(),
@@ -3302,7 +3344,8 @@ function getState() {
 }
 function applyState(s) {
   if (!s) return;
-  $("f-taxon").value = s.taxon || ""; currentTaxon = s.taxon || "";
+  taxa = s.taxon ? s.taxon.split(",").filter(Boolean) : []; currentTaxon = taxa.join(",");
+  renderTaxonChips();
   excludes = s.exclude ? s.exclude.split("^").filter(Boolean) : [];
   renderExcludeChips();
   selectedInterval = s.interval || "";
@@ -3636,7 +3679,6 @@ $("samples").addEventListener("click", (e) => {
   const s = SAMPLES[+b.dataset.s];
   applyState({ ...BLANK, limit: $("f-limit").value, paleo: usePaleo ? 1 : 0,
     base: $("f-base").value, cb: cbSafe ? 1 : 0, density: $("f-density").checked ? 1 : 0, ...s.state });
-  if ($("f-taxon").value) taxonLineage($("f-taxon").value).then((p) => { taxonInput.title = p || ""; });
   showTab("results");
   search();
 });
@@ -3664,10 +3706,8 @@ renderSaved();
   if (hash) {
     applyState(hash);
     buildLegend();
-    taxonLineage($("f-taxon").value).then((p) => { taxonInput.title = p || ""; });
   } else {
-    $("f-taxon").value = "Dinosauria"; currentTaxon = "Dinosauria";
-    taxonLineage("Dinosauria").then((p) => { taxonInput.title = p || "Dinosauria"; });
+    taxa = ["Dinosauria"]; renderTaxonChips(); currentTaxon = "Dinosauria";
     selectedInterval = "Cretaceous";
   }
   if (usePaleo) updatePaleoGlobe();
