@@ -2096,13 +2096,6 @@ const RANK = { 2: "subspecies", 3: "species", 4: "subgenus", 5: "genus", 6: "sub
   17: "class", 18: "superclass", 19: "subphylum", 20: "phylum", 21: "superphylum",
   22: "subkingdom", 23: "kingdom", 25: "unranked clade" };
 
-/* Broad-to-narrow display order for the Compare table's rank groups. Anything
- * not listed here (an unrecognised rank, or none at all) sorts to the end. */
-const RANK_GROUP_ORDER = ["kingdom", "subkingdom", "superphylum", "phylum", "subphylum",
-  "superclass", "class", "subclass", "infraclass", "superorder", "order", "suborder",
-  "infraorder", "superfamily", "family", "subfamily", "tribe", "subtribe",
-  "genus", "subgenus", "species", "subspecies", "unranked clade"];
-
 function taxonCard(o, isMatch = false) {
   const name = o.tna || o.idn;
   const txNo = String(o.tid || "").replace(/\D/g, "");
@@ -2309,7 +2302,7 @@ async function loadSlotTaxa(side) {
     for (const o of recs) {
       const name = o.tna || o.idn;
       if (!name) continue;
-      if (!taxa.has(name)) taxa.set(name, { name, rnk: o.rnk });
+      if (!taxa.has(name)) taxa.set(name, { name, rnk: o.rnk, phl: o.phl, cll: o.cll });
     }
     s.taxa = taxa;
     s.capped = s.kind === "formation" && recs.length >= 3000;
@@ -2487,31 +2480,37 @@ function renderComparison() {
     return shown + more || `<div class="loading-row">None</div>`;
   };
 
-  // Grouped by rank (kingdom → ... → species), each group a collapsible
-  // <details> block so a long diff doesn't read as one giant flat list.
+  // Grouped by the higher classification each taxon actually belongs to
+  // (class, or phylum when no class is on record) so e.g. every dinosaur —
+  // genus, family or order rank alike — lands in one "Reptilia" group
+  // instead of being scattered across separate rank-only buckets. Each
+  // group is a collapsible <details> block so a long diff doesn't read as
+  // one giant flat list.
+  const cleanCls = (v) => (v && !/^NO_.*_SPECIFIED$/.test(v)) ? v : null;
+  const groupLabel = (t) => cleanCls(t.cll) || cleanCls(t.phl) || "Unclassified";
   const tableHtml = () => {
     const all = [...shared.map((n) => [n, "both"]), ...onlyA.map((n) => [n, "A"]), ...onlyB.map((n) => [n, "B"])];
-    const groups = new Map(); // rank label -> [name, where][]
+    const groups = new Map(); // classification label -> [name, where][]
     for (const entry of all) {
       const t = a.taxa.get(entry[0]) || b.taxa.get(entry[0]);
-      const label = RANK[t.rnk] || "Unranked";
+      const label = groupLabel(t);
       if (!groups.has(label)) groups.set(label, []);
       groups.get(label).push(entry);
     }
-    const rankIndex = (label) => {
-      const i = RANK_GROUP_ORDER.indexOf(label);
-      return i === -1 ? RANK_GROUP_ORDER.length : i;
-    };
-    const labels = [...groups.keys()].sort((x, y) => rankIndex(x) - rankIndex(y));
+    const labels = [...groups.keys()].sort((x, y) =>
+      x === "Unclassified" ? 1 : y === "Unclassified" ? -1 : x.localeCompare(y));
     return labels.map((label) => {
       const rows = groups.get(label).sort((x, y) => x[0].localeCompare(y[0]));
-      return `<details class="cmp-rank-group" open>
-        <summary>${esc(label[0].toUpperCase() + label.slice(1))} <span>${rows.length}</span></summary>
+      return `<details class="cmp-cls-group" open>
+        <summary>${esc(label)} <span>${rows.length}</span></summary>
         <table class="cmp-table">
-          <thead><tr><th>Taxon</th><th class="yn" title="${esc(a.label)}">A</th><th class="yn" title="${esc(b.label)}">B</th></tr></thead>
-          <tbody>${rows.map(([n, where]) => `<tr><td class="nm">${esc(n)}</td>
+          <thead><tr><th>Taxon</th><th>Rank</th><th class="yn" title="${esc(a.label)}">A</th><th class="yn" title="${esc(b.label)}">B</th></tr></thead>
+          <tbody>${rows.map(([n, where]) => {
+            const t = a.taxa.get(n) || b.taxa.get(n);
+            return `<tr><td class="nm">${esc(n)}</td><td class="rk">${esc(RANK[t.rnk] || "")}</td>
             <td class="yn ${where !== "B" ? "yes" : ""}">${where !== "B" ? "✓" : ""}</td>
-            <td class="yn ${where !== "A" ? "yes" : ""}">${where !== "A" ? "✓" : ""}</td></tr>`).join("")}</tbody>
+            <td class="yn ${where !== "A" ? "yes" : ""}">${where !== "A" ? "✓" : ""}</td></tr>`;
+          }).join("")}</tbody>
         </table>
       </details>`;
     }).join("");
