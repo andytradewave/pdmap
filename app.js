@@ -1055,10 +1055,13 @@ async function search() {
 let taxonInfoToken = 0;
 let taxonInfoRec = null;    // the taxon record currently shown, for the occ/subtaxa expanders
 let taxonExpandView = null; // "occ" | "subtaxa" | null — which inline list (if any) is open
+let taxonSubtaxaKids = null;    // full immediate-children list for the open subtaxa view
+let taxonSubtaxaShowAll = false; // "Show all" clicked, past the first page
 async function updateTaxonInfo(name) {
   const box = $("taxon-info");
   if (!box) return;
-  taxonInfoRec = null; taxonExpandView = null; // any expanded list belongs to the previous taxon
+  // any expanded list belongs to the previous taxon
+  taxonInfoRec = null; taxonExpandView = null; taxonSubtaxaKids = null; taxonSubtaxaShowAll = false;
   if (!name) { box.classList.add("hidden"); box.innerHTML = ""; return; }
   const my = ++taxonInfoToken;
   box.classList.remove("hidden");
@@ -1082,6 +1085,9 @@ function renderTaxonInfo(r) {
   const txNo = String(r.oid || "").replace(/\D/g, "");
   const pbdb = txNo ? `https://paleobiodb.org/classic/basicTaxonInfo?taxon_no=${txNo}` : null;
   const extinct = String(r.ext) === "0";
+  // PBDB's "size" (siz) counts the taxon itself plus its subtaxa, not just the
+  // subtaxa — subtract one so the badge and the list underneath agree.
+  const subtaxaCount = r.siz != null ? Math.max(0, +r.siz - 1) : 0;
   const sil = imgId
     ? `<img class="ti-sil" loading="lazy" alt="" src="${PBDB}/taxa/thumb.png?id=${imgId}"
          onerror="this.style.display='none'"/>`
@@ -1115,7 +1121,7 @@ function renderTaxonInfo(r) {
         <div class="ti-facts">
           ${r.att ? `<span title="Naming authority">${esc(r.att)}</span>` : ""}
           ${r.noc != null ? `<button type="button" class="ti-stat" data-view="occ" title="View occurrences"><b>${(+r.noc).toLocaleString()}</b> occ.</button>` : ""}
-          ${r.siz != null && +r.siz > 1 ? `<button type="button" class="ti-stat" data-view="subtaxa" title="View subtaxa"><b>${(+r.siz).toLocaleString()}</b> subtaxa</button>` : ""}
+          ${subtaxaCount > 0 ? `<button type="button" class="ti-stat" data-view="subtaxa" title="View subtaxa"><b>${subtaxaCount.toLocaleString()}</b> subtaxa</button>` : ""}
           <span class="ti-tag ${extinct ? "ext" : "extant"}">${extinct ? "Extinct" : "Living members"}</span>
         </div>
       </div>
@@ -1140,14 +1146,20 @@ async function toggleTaxonExpand(view) {
     return;
   }
   taxonExpandView = view;
+  taxonSubtaxaShowAll = false;
   syncTaxonStatButtons();
   expand.classList.remove("hidden");
   expand.innerHTML = `<div class="loading-row">Loading…</div>`;
   try {
-    const html = view === "occ" ? renderOccurrenceList(await fetchTaxonOccurrenceSample(rec), rec)
-      : renderSubtaxaList(await fetchTaxonChildren({ oid: rec.oid, name: rec.nam }), rec);
-    if (my !== taxonExpandToken) return; // superseded by another click
-    expand.innerHTML = html;
+    if (view === "occ") {
+      const occs = await fetchTaxonOccurrenceSample(rec);
+      if (my !== taxonExpandToken) return; // superseded by another click
+      expand.innerHTML = renderOccurrenceList(occs, rec);
+    } else {
+      taxonSubtaxaKids = await fetchTaxonSubtaxa(rec);
+      if (my !== taxonExpandToken) return;
+      expand.innerHTML = renderSubtaxaList();
+    }
   } catch (e) {
     if (my === taxonExpandToken) expand.innerHTML = `<div class="loading-row">Couldn't load — try again.</div>`;
   }
@@ -1187,22 +1199,42 @@ function renderOccurrenceList(occs, rec) {
     <div class="ti-list-note">${note}</div>`;
 }
 
-function renderSubtaxaList(kids, rec) {
-  if (!kids.length) return `<div class="loading-row">No subtaxa with fossil occurrences found.</div>`;
-  const rows = kids.map((k) => `<button type="button" class="ti-list-row pick" data-pick-taxon="${esc(k.name)}">
+/* Every immediate child of a taxon (not just ones with their own occurrences),
+ * so a small clade's subtaxa list isn't missing entries — unlike the search
+ * picker's fetchTaxonChildren, which deliberately hides empty groups. */
+async function fetchTaxonSubtaxa(rec) {
+  const txNo = String(rec.oid || "").replace(/\D/g, "");
+  const sel = txNo ? `id=${txNo}` : `name=${encodeURIComponent(rec.nam)}`;
+  const json = await (await fetch(`${PBDB}/taxa/list.json?${sel}&rel=children&status=accepted&show=size`)).json();
+  return (json.records || [])
+    .map((r) => ({ name: r.nam, rnk: RANK[+r.rnk] || "", noc: +r.noc || 0 }))
+    .sort((a, b) => b.noc - a.noc || a.name.localeCompare(b.name));
+}
+
+const SUBTAXA_PAGE = 20;
+function renderSubtaxaList() {
+  const kids = taxonSubtaxaKids || [];
+  if (!kids.length) return `<div class="loading-row">No subtaxa found.</div>`;
+  const showAll = taxonSubtaxaShowAll || kids.length <= SUBTAXA_PAGE;
+  const shown = showAll ? kids : kids.slice(0, SUBTAXA_PAGE);
+  const rows = shown.map((k) => `<button type="button" class="ti-list-row pick" data-pick-taxon="${esc(k.name)}">
       <span class="nm">${esc(k.name)}</span>${k.rnk ? `<span class="rk">${esc(k.rnk)}</span>` : ""}
-      <span class="meta">${k.noc.toLocaleString()} occ.</span></button>`).join("");
-  const total = +rec.siz || kids.length;
-  const note = kids.length < total
-    ? `Showing top ${kids.length.toLocaleString()} of ${total.toLocaleString()} subtaxa — click a name to search it.`
-    : `Click a name to search it.`;
-  return `<div class="ti-list-head">Subtaxa</div><div class="ti-list">${rows}</div>
-    <div class="ti-list-note">${note}</div>`;
+      <span class="meta">${k.noc ? k.noc.toLocaleString() + " occ." : "no occ."}</span></button>`).join("");
+  const more = showAll ? "" :
+    `<button type="button" class="ti-list-more" data-show-all-subtaxa="1">Show all ${kids.length.toLocaleString()} subtaxa</button>`;
+  return `<div class="ti-list-head">Subtaxa</div><div class="ti-list">${rows}</div>${more}
+    <div class="ti-list-note">Click a name to search it.</div>`;
 }
 
 $("taxon-info").addEventListener("click", (e) => {
   const stat = e.target.closest(".ti-stat");
   if (stat) { toggleTaxonExpand(stat.dataset.view); return; }
+  const showAllBtn = e.target.closest("[data-show-all-subtaxa]");
+  if (showAllBtn) {
+    taxonSubtaxaShowAll = true;
+    $("taxon-info").querySelector(".ti-expand").innerHTML = renderSubtaxaList();
+    return;
+  }
   const pick = e.target.closest("[data-pick-taxon]");
   if (pick) { e.preventDefault(); pickSubtaxon(pick.dataset.pickTaxon); }
 });

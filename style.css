@@ -512,6 +512,8 @@ button:hover { filter: brightness(1.08); }
 button.ti-list-row.pick { width: 100%; text-align: left; font: inherit; color: inherit; background: transparent; border: none; cursor: pointer; }
 button.ti-list-row.pick:hover { background: #0c1018; }
 .ti-list-note { color: var(--muted); font-size: 11px; margin-top: 6px; }
+.ti-list-more { display: block; width: 100%; text-align: left; background: transparent; border: none; color: var(--accent); font-size: 11px; padding: 5px 6px 0; cursor: pointer; }
+.ti-list-more:hover { text-decoration: underline; filter: none; }
 
 /* ===== Time machine (scrubber strip inside the top timescale) ===== */
 .tm-strip {
