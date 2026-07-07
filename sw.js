@@ -1,9 +1,9 @@
-/* PDMap service worker — makes the app installable and lets the app shell
+/* Paleoscope service worker — makes the app installable and lets the app shell
  * (HTML/CSS/JS, globe library, Earth textures, icons) load offline/instantly.
  * Live data (PBDB, Wikipedia) is cross-origin and is never cached — it always
  * goes to the network, so the fossil records and photos stay current. */
 
-const CACHE = "pdmap-shell-v37";
+const CACHE = "paleoscope-shell-v38";
 
 const SHELL = [
   "./",

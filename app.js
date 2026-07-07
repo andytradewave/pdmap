@@ -1,5 +1,5 @@
 /* ===========================================================================
- * PDMap — a "global earth" interface for the Paleobiology Database (PBDB).
+ * Paleoscope — a "global earth" interface for the Paleobiology Database (PBDB).
  * Pure static front-end. No backend: the PBDB data service is CORS-enabled,
  * so the browser talks to it directly.
  *   API docs: https://paleobiodb.org/data1.2/
@@ -1250,10 +1250,10 @@ function pickSubtaxon(name) {
 /* ------------------------------------------------------------- Export --- */
 /* PBDB is CC-BY, so every export carries an attribution / citation line. */
 const PBDB_CITE = "Data: Paleobiology Database (paleobiodb.org), CC-BY. " +
-  "Continent reconstructions: GPlates / PALEOMAP (Scotese). Exported via PDMap.";
+  "Continent reconstructions: GPlates / PALEOMAP (Scotese). Exported via Paleoscope.";
 
 function exportFilename(ext) {
-  return `pdmap-${(currentTaxon || "localities").replace(/\W+/g, "_").toLowerCase()}.${ext}`;
+  return `paleoscope-${(currentTaxon || "localities").replace(/\W+/g, "_").toLowerCase()}.${ext}`;
 }
 function saveBlob(text, type, name) {
   const blob = new Blob([text], { type: `${type};charset=utf-8` });
@@ -1364,7 +1364,7 @@ function exportKML(recs) {
     </Placemark>`).join("\n");
   const kml = `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2"><Document>
-    <name>PDMap — ${x(currentTaxon || "fossil localities")}</name>
+    <name>Paleoscope — ${x(currentTaxon || "fossil localities")}</name>
     <description>${x(PBDB_CITE)}</description>
 ${placemarks}
   </Document></kml>`;

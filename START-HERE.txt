@@ -1,5 +1,5 @@
 ==================================================================
-  PDMap - Fossil Globe
+  Paleoscope - Fossil Globe
   Explore fossil sites from around the world on a 3D globe.
 ==================================================================
 
@@ -18,15 +18,15 @@ IF THE FOSSILS DON'T LOAD with the easy way, use the launcher for
 your system instead (it runs a tiny local server, which some
 browsers prefer):
 
-  Windows :  double-click   Start-PDMap-Windows.bat
-  Mac     :  double-click   Start-PDMap-Mac.command
-  Linux   :  run            ./Start-PDMap-Linux.sh
+  Windows :  double-click   Start-Paleoscope-Windows.bat
+  Mac     :  double-click   Start-Paleoscope-Mac.command
+  Linux   :  run            ./Start-Paleoscope-Linux.sh
 
   (On Mac, the first time you may need to right-click the .command
    file and choose "Open" to get past the security prompt.)
 
 A black window/terminal will appear - that is the server.
-Leave it open while you use PDMap; close it when you're done.
+Leave it open while you use Paleoscope; close it when you're done.
 
 
 HOW TO USE IT
@@ -46,7 +46,7 @@ HOW TO USE IT
 
 PUT IT ON YOUR PHONE (optional)
 ------------------------------------------------------------------
-PDMap can be installed on a phone's home screen like an app.
+Paleoscope can be installed on a phone's home screen like an app.
 
   1. On a computer, start it with the launcher for your system
      (see above) - it will show an address like  http://localhost:8000

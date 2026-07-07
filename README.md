@@ -1,4 +1,4 @@
-# PDMap — Fossil Globe
+# Paleoscope — Fossil Globe
 
 A "Google Earth" style 3-D globe for exploring fossil localities from the
 [Paleobiology Database](https://paleobiodb.org/) (PBDB).
@@ -94,7 +94,7 @@ the box.
 ### macOS
 
 ```bash
-cd PDMap
+cd Paleoscope
 python3 -m http.server 8000
 # then open http://localhost:8000
 ```
@@ -102,7 +102,7 @@ python3 -m http.server 8000
 ### Oracle Linux 9 (server)
 
 ```bash
-cd /path/to/PDMap
+cd /path/to/Paleoscope
 python3 -m http.server 8000
 # open http://<server-ip>:8000 from your browser
 ```
@@ -115,7 +115,7 @@ sudo firewall-cmd --reload
 ```
 
 For a long-running deployment behind nginx, just point a `location` block at this
-folder (`root /path/to/PDMap;`) — there is nothing to build or compile.
+folder (`root /path/to/Paleoscope;`) — there is nothing to build or compile.
 
 A convenience script is included:
 
@@ -137,7 +137,7 @@ A convenience script is included:
 
 ## Sending it to other people (the kit)
 
-`PDMap-kit.zip` is a self-contained bundle you can send to anyone on Windows,
+`Paleoscope-kit.zip` is a self-contained bundle you can send to anyone on Windows,
 macOS or Linux. It includes the app plus the globe library and Earth textures
 vendored locally, so the only things fetched at runtime are the live fossil data
 and photos.
@@ -145,8 +145,8 @@ and photos.
 The recipient unzips it and either:
 
 - **double-clicks `index.html`** (works in Chrome, Edge and Safari), or
-- runs the launcher for their OS — `Start-PDMap-Windows.bat`,
-  `Start-PDMap-Mac.command`, or `Start-PDMap-Linux.sh` — which starts a tiny local
+- runs the launcher for their OS — `Start-Paleoscope-Windows.bat`,
+  `Start-Paleoscope-Mac.command`, or `Start-Paleoscope-Linux.sh` — which starts a tiny local
   server (used as a fallback for browsers that are strict about `file://`).
 
 `START-HERE.txt` inside the zip explains this in plain language for non-technical
@@ -155,13 +155,13 @@ just the app files + `vendor/` + the launchers).
 
 ## Install it on a phone (PWA)
 
-PDMap is a Progressive Web App, so it can be installed on an iPhone or Android
+Paleoscope is a Progressive Web App, so it can be installed on an iPhone or Android
 home screen and run full-screen like a native app — no app store, no build.
 
 Installing on a phone requires the app to be **served over the network** (a phone
 can't open the desktop's `file://`). Two easy ways:
 
-1. **Same Wi-Fi:** run a launcher on a computer (`Start-PDMap-*`), find that
+1. **Same Wi-Fi:** run a launcher on a computer (`Start-Paleoscope-*`), find that
    computer's IP, and on the phone visit `http://<computer-ip>:8000/`.
 2. **Host it:** drop this folder on any static host (GitHub Pages, Netlify, an
    nginx server, etc.) and open the URL on the phone. **HTTPS is required** for

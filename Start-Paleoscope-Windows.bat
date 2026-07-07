@@ -1,11 +1,11 @@
 @echo off
 setlocal
 cd /d "%~dp0"
-title PDMap - Fossil Globe
+title Paleoscope - Fossil Globe
 set PORT=8000
 
 echo ============================================
-echo   PDMap - Fossil Globe
+echo   Paleoscope - Fossil Globe
 echo ============================================
 echo.
 
@@ -13,7 +13,7 @@ where py >nul 2>nul
 if %errorlevel%==0 (
   echo Starting a local server with Python...
   echo Your browser will open at http://localhost:%PORT%/
-  echo Leave this window open while using PDMap. Close it to stop.
+  echo Leave this window open while using Paleoscope. Close it to stop.
   start "" "http://localhost:%PORT%/"
   py -m http.server %PORT%
   goto end
@@ -23,7 +23,7 @@ where python >nul 2>nul
 if %errorlevel%==0 (
   echo Starting a local server with Python...
   echo Your browser will open at http://localhost:%PORT%/
-  echo Leave this window open while using PDMap. Close it to stop.
+  echo Leave this window open while using Paleoscope. Close it to stop.
   start "" "http://localhost:%PORT%/"
   python -m http.server %PORT%
   goto end

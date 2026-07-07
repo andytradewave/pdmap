@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Run this to launch PDMap on Linux:  ./Start-PDMap-Linux.sh
+# Run this to launch Paleoscope on Linux:  ./Start-Paleoscope-Linux.sh
 cd "$(dirname "$0")" || exit 1
 PORT=8000
 URL="http://localhost:$PORT/"
 
 echo "============================================"
-echo "  PDMap - Fossil Globe"
+echo "  Paleoscope - Fossil Globe"
 echo "============================================"
 echo
 echo "Starting a local server at $URL"
-echo "Leave this terminal open while using PDMap. Press Ctrl+C to stop."
+echo "Leave this terminal open while using Paleoscope. Press Ctrl+C to stop."
 echo
 
 # Try to open a browser automatically (ignored if running headless).

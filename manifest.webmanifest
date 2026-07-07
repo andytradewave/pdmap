@@ -1,6 +1,6 @@
 {
-  "name": "PDMap — Fossil Globe",
-  "short_name": "PDMap",
+  "name": "Paleoscope — Fossil Globe",
+  "short_name": "Paleoscope",
   "description": "Explore fossil localities from around the world on a 3D globe, powered by the Paleobiology Database.",
   "start_url": "./index.html",
   "scope": "./",
