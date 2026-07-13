@@ -937,12 +937,22 @@ let lastLimit = "2000";
 /* Build the PBDB filter parameters (taxon + excludes, age/interval, formation,
  * environment, region, viewport) shared by the locality search and the
  * occurrence-level export, so an export always matches what's on the globe. */
+/* Map a comma-separated list of chosen taxon names to a PBDB-valid base_name
+ * string via the reconciliation bridge (a no-op under the PBDB provider). */
+function pbdbBaseName(csv) {
+  return String(csv || "").split(",").map((t) => t.trim()).filter(Boolean)
+    .map((t) => TaxonProvider.pbdbQueryName(t)).join(",");
+}
+
 function buildFilterParams() {
   const params = new URLSearchParams();
-  const taxon = taxa.join(",");
-  if (taxon) {
-    const ex = excludes.map((s) => "^" + s).join("");
-    params.set("base_name", taxon + ex);
+  if (taxa.length) {
+    // The bridge maps each chosen taxon (which may have come from Wikispecies)
+    // to a PBDB-valid base_name — identity for most higher taxa, an override
+    // for known spelling mismatches — so occurrences still resolve.
+    const inc = taxa.map((t) => TaxonProvider.pbdbQueryName(t)).join(",");
+    const ex = excludes.map((s) => "^" + TaxonProvider.pbdbQueryName(s)).join("");
+    params.set("base_name", inc + ex);
   }
   const formation = $("f-formation").value.trim();
   if (formation) params.set("formation", formation);
@@ -1069,11 +1079,12 @@ async function updateTaxonInfo(name) {
   box.classList.remove("hidden");
   box.innerHTML = `<div class="ti-head">About this taxon</div><div class="loading-row">Loading…</div>`;
   try {
-    const res = await fetch(`${PBDB}/taxa/single.json?name=${encodeURIComponent(name)}&show=app,size,img,common`);
-    const rec = ((await res.json()).records || [])[0];
+    // Taxonomy fields from the provider; stratigraphic range / extinct flag /
+    // occurrence count are overlaid from PBDB inside the provider.
+    const info = await TaxonProvider.info(name);
     if (my !== taxonInfoToken) return; // a newer search superseded this one
-    if (!rec) { box.classList.add("hidden"); box.innerHTML = ""; return; }
-    renderTaxonInfo(rec);
+    if (!info) { box.classList.add("hidden"); box.innerHTML = ""; return; }
+    renderTaxonInfo(info);
   } catch (e) {
     if (my === taxonInfoToken) { box.classList.add("hidden"); box.innerHTML = ""; }
   }
@@ -1082,27 +1093,22 @@ async function updateTaxonInfo(name) {
 function renderTaxonInfo(r) {
   taxonInfoRec = r;
   const box = $("taxon-info");
-  const name = r.nam || currentTaxon;
-  const imgId = r.img ? String(r.img).replace(/\D/g, "") : null;
-  const txNo = String(r.oid || "").replace(/\D/g, "");
-  const pbdb = txNo ? `https://paleobiodb.org/classic/basicTaxonInfo?taxon_no=${txNo}` : null;
-  const extinct = String(r.ext) === "0";
-  // PBDB's "size" (siz) counts the taxon itself plus its subtaxa, not just the
-  // subtaxa — subtract one so the badge and the list underneath agree.
-  const subtaxaCount = r.siz != null ? Math.max(0, +r.siz - 1) : 0;
-  const sil = imgId
-    ? `<img class="ti-sil" loading="lazy" alt="" src="${PBDB}/taxa/thumb.png?id=${imgId}"
+  const name = r.name || currentTaxon;
+  const subtaxaCount = r.subtaxaCount || 0;
+  const sil = r.imageUrl
+    ? `<img class="ti-sil" loading="lazy" alt="" src="${esc(r.imageUrl)}"
          onerror="this.style.display='none'"/>`
     : "";
 
-  // Stratigraphic range: oldest first-appearance (fea) → youngest last-appearance (lla).
-  const oldest = +r.fea, youngest = +r.lla;
+  // Stratigraphic range (always from PBDB, overlaid by the provider):
+  // oldest first-appearance → youngest last-appearance.
   let rangeHtml = "";
-  if (!isNaN(oldest) && !isNaN(youngest) && oldest > 0) {
+  if (r.range && r.range.oldest > 0) {
+    const oldest = r.range.oldest, youngest = r.range.youngest;
     const scale = Math.max(541, oldest);            // span the Phanerozoic, or older if needed
     const x = (a) => (1 - a / scale) * 100;          // old → left, present → right
     const l = x(oldest), w = Math.max(1.5, x(youngest) - l);
-    const ivl = [r.tei, r.tli].filter(Boolean);
+    const ivl = [r.range.earlyInterval, r.range.lateInterval].filter(Boolean);
     const ivlTxt = ivl.length ? (ivl[0] === ivl[1] ? ivl[0] : `${ivl[0]} – ${ivl[1]}`) : "";
     rangeHtml = `
       <div class="ti-range-lbl">Stratigraphic range
@@ -1113,23 +1119,32 @@ function renderTaxonInfo(r) {
       ${ivlTxt ? `<div class="ti-ivl">${esc(ivlTxt)}</div>` : ""}`;
   }
 
+  const srcLabel = r.source === "wikispecies" ? "Wikispecies" : "PBDB";
+  // Extinct/living is only shown when known (null = unknown, hide it).
+  const tag = r.extinct === true ? `<span class="ti-tag ext">Extinct</span>`
+    : r.extinct === false ? `<span class="ti-tag extant">Living members</span>` : "";
+  const links = [];
+  if (r.wikispeciesUrl) links.push(`<a class="chip" target="_blank" rel="noopener" href="${esc(r.wikispeciesUrl)}">🌿 Wikispecies</a>`);
+  if (r.wikipediaUrl) links.push(`<a class="chip" target="_blank" rel="noopener" href="${esc(r.wikipediaUrl)}">📖 Wikipedia</a>`);
+  if (r.pbdbUrl) links.push(`<a class="chip" target="_blank" rel="noopener" href="${esc(r.pbdbUrl)}">📄 PBDB taxon page</a>`);
+
   box.innerHTML = `
-    <div class="ti-head">About this taxon <span class="ti-src">PBDB</span></div>
+    <div class="ti-head">About this taxon <span class="ti-src">${esc(srcLabel)}</span></div>
     <div class="ti-main">
       ${sil}
       <div class="ti-body">
-        <div class="ti-name">${esc(name)}<span class="ti-rank">${esc(RANK[r.rnk] || "")}</span></div>
-        ${r.nm2 ? `<div class="ti-common">“${esc(r.nm2)}”</div>` : ""}
+        <div class="ti-name">${esc(name)}<span class="ti-rank">${esc(r.rank || "")}</span></div>
+        ${r.common ? `<div class="ti-common">“${esc(r.common)}”</div>` : ""}
         <div class="ti-facts">
-          ${r.att ? `<span title="Naming authority">${esc(r.att)}</span>` : ""}
-          ${r.noc != null ? `<button type="button" class="ti-stat" data-view="occ" title="View occurrences"><b>${(+r.noc).toLocaleString()}</b> occ.</button>` : ""}
+          ${r.authority ? `<span title="Naming authority">${esc(r.authority)}</span>` : ""}
+          ${r.occCount != null ? `<button type="button" class="ti-stat" data-view="occ" title="View occurrences"><b>${(+r.occCount).toLocaleString()}</b> occ.</button>` : ""}
           ${subtaxaCount > 0 ? `<button type="button" class="ti-stat" data-view="subtaxa" title="View subtaxa"><b>${subtaxaCount.toLocaleString()}</b> subtaxa</button>` : ""}
-          <span class="ti-tag ${extinct ? "ext" : "extant"}">${extinct ? "Extinct" : "Living members"}</span>
+          ${tag}
         </div>
       </div>
     </div>
     ${rangeHtml}
-    ${pbdb ? `<div class="chips"><a class="chip" target="_blank" rel="noopener" href="${pbdb}">📄 PBDB taxon page</a></div>` : ""}
+    ${links.length ? `<div class="chips">${links.join("")}</div>` : ""}
     <div class="ti-expand hidden"></div>`;
 }
 
@@ -1175,9 +1190,12 @@ function syncTaxonStatButtons() {
 /* An uncapped sample of a taxon's own occurrences (not its subtaxa's), just
  * enough fields to show formation / country / age per row. */
 async function fetchTaxonOccurrenceSample(rec) {
-  const txNo = String(rec.oid || "").replace(/\D/g, "");
+  // Occurrences are always PBDB. Prefer the resolved PBDB taxon id; otherwise
+  // send the bridged (PBDB-valid) name so a Wikispecies choice still resolves.
+  const txNo = String(rec.pbdbId || "").replace(/\D/g, "");
   const params = new URLSearchParams();
-  if (txNo) params.set("base_id", txNo); else params.set("base_name", rec.nam);
+  if (txNo) params.set("base_id", txNo);
+  else params.set("base_name", TaxonProvider.pbdbQueryName(rec.pbdbName || rec.name));
   params.set("show", "loc,strat,time");
   params.set("limit", "200");
   const json = await (await fetch(`${PBDB}/occs/list.json?${params}`)).json();
@@ -1190,10 +1208,10 @@ function renderOccurrenceList(occs, rec) {
     const early = o.oei || "", late = o.oli || early;
     const ivlTxt = early ? (early === late ? early : `${early} – ${late}`) : "";
     const meta = [o.sfm, o.cc2, ivlTxt].filter(Boolean).join(" · ");
-    return `<div class="ti-list-row"><span class="nm">${esc(o.idn || o.tna || rec.nam)}</span>
+    return `<div class="ti-list-row"><span class="nm">${esc(o.idn || o.tna || rec.name)}</span>
       ${meta ? `<span class="meta">${esc(meta)}</span>` : ""}</div>`;
   }).join("");
-  const total = +rec.noc || occs.length;
+  const total = +rec.occCount || occs.length;
   const note = occs.length < total
     ? `Showing ${occs.length.toLocaleString()} of ${total.toLocaleString()} occurrences.`
     : `${occs.length.toLocaleString()} occurrence${occs.length === 1 ? "" : "s"}.`;
@@ -1205,12 +1223,8 @@ function renderOccurrenceList(occs, rec) {
  * so a small clade's subtaxa list isn't missing entries — unlike the search
  * picker's fetchTaxonChildren, which deliberately hides empty groups. */
 async function fetchTaxonSubtaxa(rec) {
-  const txNo = String(rec.oid || "").replace(/\D/g, "");
-  const sel = txNo ? `id=${txNo}` : `name=${encodeURIComponent(rec.nam)}`;
-  const json = await (await fetch(`${PBDB}/taxa/list.json?${sel}&rel=children&status=accepted&show=size`)).json();
-  return (json.records || [])
-    .map((r) => ({ name: r.nam, rnk: RANK[+r.rnk] || "", noc: +r.noc || 0 }))
-    .sort((a, b) => b.noc - a.noc || a.name.localeCompare(b.name));
+  const kids = await TaxonProvider.subtaxa({ name: rec.name, id: rec.id });
+  return kids.map((k) => ({ name: k.name, rnk: k.rank, noc: k.noc }));
 }
 
 const SUBTAXA_PAGE = 20;
@@ -1250,8 +1264,14 @@ function pickSubtaxon(name) {
 }
 
 /* ------------------------------------------------------------- Export --- */
-/* PBDB is CC-BY, so every export carries an attribution / citation line. */
+/* Occurrence data is PBDB (CC-BY), so every export carries its citation line.
+ * When the taxonomy layer is driven from Wikispecies, the navigation/taxonomy
+ * came from Wikidata (CC0) + Wikispecies (CC BY-SA) — credited too, since the
+ * licences differ from PBDB's. */
 const PBDB_CITE = "Data: Paleobiology Database (paleobiodb.org), CC-BY. " +
+  (TaxonProvider.source === "wikispecies"
+    ? "Taxonomy: Wikispecies (species.wikimedia.org, CC BY-SA) via Wikidata (CC0). "
+    : "") +
   "Continent reconstructions: GPlates / PALEOMAP (Scotese). Exported via Paleoscope.";
 
 function exportFilename(ext) {
@@ -1870,7 +1890,7 @@ async function openLocality(d) {
     const all = fetch(`${PBDB}/occs/list.json?coll_id=${collNo}&show=class,img&limit=500`)
       .then((r) => r.json());
     const rel = currentTaxon
-      ? fetch(`${PBDB}/occs/list.json?coll_id=${collNo}&base_name=${encodeURIComponent(currentTaxon)}&limit=500`)
+      ? fetch(`${PBDB}/occs/list.json?coll_id=${collNo}&base_name=${encodeURIComponent(pbdbBaseName(currentTaxon))}&limit=500`)
           .then((r) => r.json()).catch(() => null)
       : Promise.resolve(null);
     const [allJson, relJson] = await Promise.all([all, rel]);
@@ -2775,63 +2795,22 @@ function freshTaxRoots() {
 const pickerHides = [];
 const closeOtherPickers = (except) => pickerHides.forEach((h) => h !== except && h());
 
-/* Full classification path for a taxon, for the field's hover tooltip. */
-const lineageCache = new Map();
+/* Full classification path for a taxon, for the field's hover tooltip. Served
+ * by the TaxonProvider (PBDB or Wikispecies-backed); caching lives there. */
 function taxonLineage(name) {
-  if (lineageCache.has(name)) return lineageCache.get(name);
-  const p = fetch(`${PBDB}/taxa/list.json?name=${encodeURIComponent(name)}&rel=all_parents&status=accepted`)
-    .then((r) => r.json()).then((d) => (d.records || []).map((r) => r.nam).filter(Boolean).join(" › "))
-    .catch(() => "");
-  lineageCache.set(name, p);
-  return p;
+  return TaxonProvider.lineage(name);
 }
 
-/* A few taxa where PBDB's own classification opinion disagrees with the
- * widely-accepted cladogram — e.g. their Maniraptora entry lists Avialae as a
- * direct child (sibling of Paraves) rather than nested inside Paraves, where
- * every recent phylogeny puts birds; similarly Aves belongs inside Avialae,
- * not as its sibling. Corrected by hand here: pulled out of the PBDB-listed
- * parent's children and spliced into the true parent's. */
-const TAXON_REPARENT = { Avialae: "Paraves", Aves: "Avialae" };
-
-/* One taxon's own record (name/oid/rank/count), no children — used to fetch a
- * TAXON_REPARENT entry so it can be injected under its corrected parent. */
-function fetchTaxonRecord(name) {
-  return fetch(`${PBDB}/taxa/list.json?name=${encodeURIComponent(name)}&status=accepted&show=size`)
-    .then((r) => r.json())
-    .then((d) => (d.records || [])[0] || null)
-    .catch(() => null);
-}
-
-/* Children of a taxon, fetched once and shared between every picker. */
-const taxChildCache = new Map();
+/* Children of a taxon for the picker tree — the provider returns normalised
+ * {name, id, rank, noc} (already deduped, empty-group-filtered and
+ * most-collected-first); here we add the tree-view bookkeeping fields. The
+ * source, its caching, and any reparenting live in the provider. */
 function fetchTaxonChildren(node) {
-  const key = node.oid ? `id:${node.oid}` : `nm:${node.name}`;
-  if (taxChildCache.has(key)) return taxChildCache.get(key);
-  const sel = node.oid ? `id=${String(node.oid).replace(/\D/g, "")}`
-                       : `name=${encodeURIComponent(node.name)}`;
-  const p = fetch(`${PBDB}/taxa/list.json?${sel}&rel=children&status=accepted&show=size`)
-    .then((r) => r.json())
-    .then(async (d) => {
-      let recs = (d.records || [])
-        .filter((r) => !(r.nam in TAXON_REPARENT) || TAXON_REPARENT[r.nam] === node.name);
-      for (const [child, trueParent] of Object.entries(TAXON_REPARENT)) {
-        if (trueParent === node.name && !recs.some((r) => r.nam === child)) {
-          const extra = await fetchTaxonRecord(child);
-          if (extra) recs = [...recs, extra];
-        }
-      }
-      return recs;
-    })
-    .then((recs) => recs
-      .map((r) => ({ name: r.nam, oid: r.oid, rnk: RANK[+r.rnk] || "", noc: +r.noc || 0,
-        children: null, expanded: false, loading: false }))
-      .filter((c) => c.noc > 0)        // only groups that actually have fossils
-      .sort((a, b) => b.noc - a.noc)   // most-collected first
-      .slice(0, 60))
-    .catch(() => []);
-  taxChildCache.set(key, p);
-  return p;
+  return TaxonProvider.children({ name: node.name, id: node.oid })
+    .then((kids) => kids.map((r) => ({
+      name: r.name, oid: r.id, rnk: r.rank, noc: r.noc,
+      children: null, expanded: false, loading: false,
+    })));
 }
 
 /* A reusable taxon picker: a text box with live search plus a lazy drill-down
@@ -2919,19 +2898,12 @@ function createTaxonPicker(input, box, { isSel, onPick, closeOnPick, storeKey, a
   async function liveSearch(q) {
     const my = ++req;
     try {
-      const recs = ((await fetch(`${PBDB}/taxa/auto.json?name=${encodeURIComponent(q)}&limit=12`)
-        .then((r) => r.json())).records) || [];
+      // Provider handles the source-specific quirks (PBDB homonym dedupe,
+      // Wikidata taxon filtering) and returns normalised {name, rank, noc}.
+      const list = await TaxonProvider.search(q);
       if (my !== req) return; // superseded by a newer keystroke
-      // Collapse the duplicate entries PBDB returns for one clade, keyed on
-      // name + occurrence count so cross-code homonyms (e.g. Euhelopus) survive.
-      const byKey = new Map();
-      for (const r of recs) {
-        const k = `${r.nam}|${r.noc}`, cur = byKey.get(k);
-        if (!cur || (/^[A-Z]/.test(r.nam) && !/^[A-Z]/.test(cur.nam))) byKey.set(k, r);
-      }
-      const list = [...byKey.values()];
       box.innerHTML = list.length
-        ? list.map((r) => optRow(r.nam, RANK[+r.rnk] || "", (+r.noc).toLocaleString())).join("")
+        ? list.map((r) => optRow(r.name, r.rank, r.noc ? (+r.noc).toLocaleString() : "")).join("")
         : `<div class="grp">No matching taxa — check the spelling</div>`;
       sync(); show();
     } catch (e) { /* network blip — leave the box as-is */ }

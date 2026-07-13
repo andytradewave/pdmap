@@ -184,7 +184,8 @@ were given; the code here is already PWA-ready.
 
 | Source | Used for | Licence |
 |---|---|---|
-| [Paleobiology Database](https://paleobiodb.org/) | Fossil localities & occurrences | CC-BY |
+| [Paleobiology Database](https://paleobiodb.org/) | Fossil localities & occurrences (always); taxonomy by default | CC-BY |
+| [Wikispecies](https://species.wikimedia.org/) via [Wikidata](https://www.wikidata.org/) | Optional taxonomy backbone (hierarchy, ranks, names, links) behind the `?taxonomy=wikispecies` flag | CC BY-SA (text) / CC0 (data) |
 | [PhyloPic](https://www.phylopic.org/) (via PBDB) | Taxon silhouettes | Public domain / CC |
 | [Wikipedia REST API](https://en.wikipedia.org/api/rest_v1/) | Real photos + descriptions per taxon | CC-BY-SA |
 | [GPlates Web Service](https://gws.gplates.org/) | Reconstructed coastlines (PALEOMAP) for ancient-Earth view beyond 540 Ma | CC-BY |
@@ -193,6 +194,40 @@ were given; the code here is already PWA-ready.
 | [Nominatim / OpenStreetMap](https://nominatim.openstreetmap.org/) | "Jump to place" geocoding | ODbL |
 
 All of these are public, CORS-enabled, and need no API key.
+
+### Taxonomy source: PBDB (default) or Wikispecies
+
+The taxonomy *display and navigation* layer — the tree-of-life picker,
+autocomplete, "About this taxon" card, and lineage tooltips — sits behind a
+`TaxonProvider` abstraction ([`taxonomy.js`](taxonomy.js)) with two swappable
+backends:
+
+- **PBDB** (default) — the Paleobiology Database's own taxonomic service.
+- **Wikispecies** — driven through its structured backbone, [Wikidata](https://www.wikidata.org/)
+  (parent taxon, rank, taxon name, images, Wikispecies/Wikipedia sitelinks), for
+  cleaner hierarchy and placement. Enable it with the URL flag
+  **`?taxonomy=wikispecies`** (remembered in `localStorage`; `?taxonomy=pbdb`
+  switches back).
+
+Fossil **occurrences** — every dot on the globe, locality card, export and
+Compare tally — always stay on PBDB. When a name is chosen from Wikispecies, a
+name-reconciliation **bridge** (`pbdbQueryName`) maps it to a PBDB-valid
+`base_name` (identity for most higher taxa, an override map seeded from
+Wikidata's "PBDB taxon ID" property, P5055) so it still resolves to occurrences.
+
+No live backend is added: a build script does the Wikidata × PBDB join once and
+ships a static index that the browser reads first (live upstream only on a miss):
+
+```sh
+node tools/build-taxonomy-index.mjs            # → vendor/taxonomy-index.json
+node tools/build-taxonomy-index.mjs --depth 3 --max 2000   # deeper / wider
+```
+
+Re-run it in CI (e.g. weekly) and commit the regenerated
+`vendor/taxonomy-index.json` — the same refresh pattern used for the PaleoDEM
+textures in `vendor/`. The index carries PBDB occurrence counts, so the picker's
+"hide empty groups / most-collected first" behaviour survives; those counts lag
+PBDB slightly between rebuilds, so treat them as indicative.
 
 **Other open datasets that could still be layered in later** (all have public APIs):
 
